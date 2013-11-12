@@ -7,7 +7,8 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 
 ## Goal
 * We don't need and mod but need one lua api and this program.
-* We can run translated-python-code on computercraft's computer
+* We can run translated-python-code on computercraft's computer.
+* Or add new mod for intergrate with python3. (server must install python3 for that.)
 
 ## Limits
 * We can't run python-code on computer directly
