@@ -3,6 +3,13 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
+## Check Here
+* http://www.computercraft.info/
+* http://greentreesnakes.readthedocs.org/en/latest/
+* https://pypi.python.org/pypi/astmonkey/0.1.0
+* http://docs.python.org/3.3/library/ast.html
+* http://www.lua.org/
+
 ## Work with
 * Module
 * Num (int, float)
