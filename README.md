@@ -2,6 +2,7 @@ Python 4 Lua (ComputerCraft Only!)
 ==================================
 
 Python Code to Lua. For ComputerCraft
+Currently it is nor work, but i will fix before 2013-11-17 (my birthday!)
 
 ## Goal
 * We don't need and mod but need one lua api and this program.
