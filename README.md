@@ -3,6 +3,15 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
+## Goal
+* We don't need and mod but need one lua api and this program.
+* We can run translated-python-code on computercraft's computer
+
+## Limits
+* We can't run python-code on computer directly
+* We can't run translater on computer. (use online compiler for later. i will release it.)
+* We can't use original python library. (it is special, unlike other real computer)
+ 
 ## Check Here
 * http://www.computercraft.info/
 * http://greentreesnakes.readthedocs.org/en/latest/
