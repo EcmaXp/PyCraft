@@ -87,33 +87,8 @@ class ShowTree(ast.NodeVisitor):
         finally:
             self.level -= 1
 
-py_API = """
-function repr(obj)
-
-end
-
-function print(...)
-    local sep = " "
-    for var in arg do
-        write(tostring(var))
-        write(sep)
-    end
-
-    write("\n")
-end
-
-function string.split()
-
-end
-
-function string.startswith()
-
-end
-
-function table.items()
-
-end
-"""
+with open("py_API.lua") as fp:
+    py_API = fp.read()
 
 py_API_FNAMES = set()
 for line in py_API.splitlines():
