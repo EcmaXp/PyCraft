@@ -5,7 +5,7 @@ Python Code to Lua. For ComputerCraft
 
 ## Work with
 * Module
-* Num
+* Num (int, float)
 * Str
 * Table (List, Tuple, Dict)
 * Name
@@ -40,6 +40,8 @@ Python Code to Lua. For ComputerCraft
 * Nonlocal
 
 ## Not Work With
+* complex (Num)
+* Bytes
 * Class
 * Etc.
 
