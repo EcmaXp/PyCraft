@@ -23,7 +23,7 @@ Python Code to Lua. For ComputerCraft
 * Slice
 * ExtSlice
 * AugAssign (with BinOp)
-* Assign
+* Assign (with Sub
 * Assert
 * Pass
 * Import (import some, import some as other)
@@ -40,13 +40,21 @@ Python Code to Lua. For ComputerCraft
 * Nonlocal
 
 ## Not Work With
+* Class
+* Del
+* Etc.
+
+## Never Work With
 * complex (Num)
 * Bytes
-* Class
-* Etc.
+* metaclass
 
 ## TODO
 * make Python Import Module Library and programs as python module. (one computer hold only one python interpreter)
 * Add NodeVisitor for flat design. no more self.visit(new_AST)
 * Rewrite define, and support types (int, float, list, tuple, dict, set, etc)
+* Rewrite py.xxx to pyctx.xxx (for assign builtins)
 * Support Binary Op and other Op
+* Support Python Bulitins
+* Support str, int, float, tuple, dict, list, set builtins method.
+* Support subscript Assign work.
