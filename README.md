@@ -18,12 +18,29 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * We can't use original python library. (it is special, unlike other real computer)
 * Lua are not support undefine (just assign nil is undefine), so no way to detect Undefined Value.
 
+## TODO
+* make Python Import Module Library and programs as python module. (one computer hold only one python interpreter)
+* Add NodeVisitor for flat design. no more self.visit(new_AST)
+* Rewrite define, and support types (int, float, list, tuple, dict, set, etc)
+* Rewrite py.xxx to pyctx.xxx (for assign builtins)
+* Support Binary Op and other Op
+* Support Python Bulitins
+* Support str, int, float, tuple, dict, list, set builtins method.
+* Support subscript Assign work.
+* If i add new mods for ComputerCraft, warp the 
+ - lua: function os.run( _tEnv, _sPath, ... )
+ - lua: function os.loadAPI( _sPath )
+ - api: ILuaContext for compile, execute.
+
 ## Check Here
 * http://www.computercraft.info/
 * http://greentreesnakes.readthedocs.org/en/latest/
 * https://pypi.python.org/pypi/astmonkey/0.1.0
 * http://docs.python.org/3.3/library/ast.html
 * http://www.lua.org/
+* http://www.eclipse.org/koneki/ldt/
+* https://code.google.com/p/pyscripter/
+
 
 ## Work with
 * Module
@@ -70,17 +87,3 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * complex (Num)
 * Bytes
 * metaclass
-
-## TODO
-* make Python Import Module Library and programs as python module. (one computer hold only one python interpreter)
-* Add NodeVisitor for flat design. no more self.visit(new_AST)
-* Rewrite define, and support types (int, float, list, tuple, dict, set, etc)
-* Rewrite py.xxx to pyctx.xxx (for assign builtins)
-* Support Binary Op and other Op
-* Support Python Bulitins
-* Support str, int, float, tuple, dict, list, set builtins method.
-* Support subscript Assign work.
-* If i add new mods for ComputerCraft, warp the 
- - lua: function os.run( _tEnv, _sPath, ... )
- - lua: function os.loadAPI( _sPath )
- - api: ILuaContext for compile, execute.
