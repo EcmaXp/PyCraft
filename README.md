@@ -1,4 +1,4 @@
-py2lua4cc
-=========
+Python 4 Lua (ComputerCraft Only!)
+==================================
 
 Python Code to Lua. For ComputerCraft
