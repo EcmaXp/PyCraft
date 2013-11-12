@@ -10,7 +10,7 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * We can run translated-python-code on computercraft's computer.
 * Or add new mod for intergrate with python3. (server must install python3 for that.)
 
-## Limits
+## Limits (Without Mod)
 * We can't run python-code on computer directly
 * We can't run translater on computer. (use online compiler for later. i will release it.)
 * We can't use original python library. (it is special, unlike other real computer)
@@ -78,3 +78,7 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * Support Python Bulitins
 * Support str, int, float, tuple, dict, list, set builtins method.
 * Support subscript Assign work.
+* If i add new mods for ComputerCraft, warp the 
+ - lua: function os.run( _tEnv, _sPath, ... )
+ - lua: function os.loadAPI( _sPath )
+ - api: ILuaContext for compile, execute.
