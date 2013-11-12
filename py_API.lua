@@ -4,7 +4,7 @@ end
 
 function print(...)
     local sep = " "
-    for var in arg do
+    for var in pairs(arg) do
         write(tostring(var))
         write(sep)
     end

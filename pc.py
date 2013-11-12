@@ -343,7 +343,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
         with self.noblock():
             name = self.visit(node.value)
             if isinstance(node.slice, ast.Index):
-                return "%s[%s]" % (name, self.visit(node.slice))
+                return "py.index(%s, %s)" % (name, self.visit(node.slice))
             else:
                 return "py.slicing(%s, %s)" % (name, self.visit(node.slice))
 
@@ -434,7 +434,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
                     self.current_block["global_defined"].add(vname)
                     self.current_block["defined"].add(vname)
 
-                    result += "; %s[%s] = %s" % (pname, index, tvalue)
+                    result += "; py.assign_subscript(%s, %s, %s)" % (pname, index, tvalue)
                 elif isinstance(target, ast.Tuple):
                     def visit_AssignTargets(node):
                         if isinstance(node, ast.Name):
@@ -745,14 +745,14 @@ import os
 import peripheral as device
 tinfo = 0
 tinfo **= 1
-
+a, b = 1, 2
 def test():
     test = 1
     def test2():
         nonlocal test
         test = 2
         print(test)
-print(repr(32j))
+a, b = b, a
 """
 
 def main():
