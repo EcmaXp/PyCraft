@@ -14,7 +14,8 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * We can't run python-code on computer directly
 * We can't run translater on computer. (use online compiler for later. i will release it.)
 * We can't use original python library. (it is special, unlike other real computer)
- 
+* Lua are not support undefine (just assign nil is undefine), so no way to detect Undefined Value.
+
 ## Check Here
 * http://www.computercraft.info/
 * http://greentreesnakes.readthedocs.org/en/latest/
