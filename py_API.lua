@@ -1,5 +1,9 @@
+lua = {}; for k, v in pairs(_G) do lua[k] = v end lua._G = nil
+
+__debug__ = True
+__doc__ = ""
+
 local TAG = '[PY]'
-local rawtype = type
 local OBJ_ID = 0
 
 local function tcopy(t)
@@ -9,7 +13,6 @@ local function tcopy(t)
   end
   return t2
 end
-lua = tcopy(_G)
 
 local function textend(t1, t2)
   for k,v in pairs(t2) do
@@ -23,24 +26,61 @@ local function tsub(a, b)
 end
 
 local function is_float(num)
-  if rawtype(num) == "number" then
+  if lua.type(num) == "number" then
     return math.floor(num) ~= num
   end
 
   error("This is not number", 2)
 end
 
+function error(msg, level)
+  if level == nil then
+    level = 1
+  end
+
+  level = level + 1
+  lua.error(TAG.." "..msg, level)
+end
+
+local function require_pyobj(obj)
+  if not is_pyobj(obj) then
+    error("SystemError: Python object are require for execute.")
+  end
+
+  return true
+end
+
+local function require_args(...)
+  for key, value in pairs({...}) do
+    if value == nil then
+      error("SystemError: Not Enough Item")
+    end
+  end
+
+  return true
+end
+
+local function nonrequire_args(...)
+  for key, value in pairs({...}) do
+    if value ~= nil then
+      error("SystemError: Too Many Item")
+    end
+  end
+
+  return true
+end
+
+
 function is_pyobj(obj)
   local mtable = getmetatable(obj)
   return mtable and rawget(mtable, "___py___") == TAG
 end
 
-
 function to_pyobj(obj)
   if is_pyobj(obj) then
     return obj
   else
-    local objtype = rawtype(obj)
+    local objtype = lua.type(obj)
     if objtype == "number" then
       if not is_float(obj) then
         return int(obj)
@@ -53,7 +93,7 @@ function to_pyobj(obj)
       return builtin_function_or_method(obj)
     end
 
-    error("type '"..objtype.."' are not supported.")
+    error("Lua object type '"..objtype.."' are not supported.")
   end
 end
 
@@ -67,19 +107,47 @@ function to_luaobj(obj)
 end
 
 function isinstance(obj, targets)
-  local mtable
-  if not is_pyobj(obj) then
-    return false
-  else
-    mtable = getmetatable(obj)
-    for supercls in mtable.mro() do
-      if supercls == targets then
-        return true
-      end
+  require_pyobj(obj)
+  require_args(targets)
+
+  local cls = type(obj)
+  for _, supercls in pairs(cls.mro()) do
+    if supercls == targets then
+      return true
     end
   end
 
   return false
+end
+
+function len(obj)
+  require_pyobj(obj)
+  return to_pyobj(metacall(obj, "__len__"))
+end
+
+function raise(obj)
+  if isinstance(obj, BaseException) then
+    cls = type(obj)
+    error(cls.__name__..": "..str(obj))
+  else
+    error("UnknownError: "..tostring(obj))
+  end
+end
+
+function repr(obj)
+  return to_pyobj(obj).__repr__()
+end
+
+function print(...)
+  local write = lua.io.write
+
+  local sep = " "
+  for _, arg in pairs({...}) do
+    write(to_luaobj(str(arg)))
+    write(sep)
+  end
+
+  write("\n")
 end
 
 --[[
@@ -152,7 +220,6 @@ end
  'Warning': <class 'Warning'>,
  'WindowsError': <class 'OSError'>,
  'ZeroDivisionError': <class 'ZeroDivisionError'>,
- '_': <Recursion on dict with id=30298560>,
  '__build_class__': <built-in function __build_class__>,
  '__debug__': True,
  '__doc__': "Built-in functions, exceptions, and other objects.\n\nNoteworthy: None is the `nil' object; Ellipsis represents `...' in slices.",
@@ -232,49 +299,21 @@ end
  'zip': <class 'zip'>}
 --]]
 
---[[
-local registry = {
-  type = {}
-}
-
-setmetatable(registry.type, {__mode="k"})
---]]
-
-function parse_call(func, ...)
-  local tArgs = {...}
-  if isinstance(tArgs[#tArgs], None) then
-
-  end
-end
-
-local function check_pyobj(mtable, obj)
-  if rawget(mtable, "___py___") ~= TAG then
-    error("obj is not python object.")
-  end
-end
-
-function raise(obj)
-
-end
-
-function repr(obj)
-  return to_pyobj(obj).__repr__()
-end
-
 function metacall(obj, fname, ...)
+  require_args(obj, fname)
+  require_pyobj(obj)
   local value, mtable, status, result
 
   mtable = getmetatable(obj)
-  check_pyobj(mtable)
-
   value = rawget(mtable, fname)
   status, result = pcall(value, obj, ...)
   if not status then error(result, 2) else return result end
 end
 
 function rawmetacall(mtable, obj, fname, ...)
+  require_args(mtable, obj, fname)
+  require_pyobj(obj)
   local value, status, result
-  check_pyobj(mtable)
 
   value = rawget(mtable, fname)
   status, result = pcall(value, obj, ...)
@@ -282,6 +321,7 @@ function rawmetacall(mtable, obj, fname, ...)
 end
 
 function getattr(obj, key, default)
+  require_args(obj, key)
   local value, mtable
 
   mtable = getmetatable(obj)
@@ -296,24 +336,26 @@ function getattr(obj, key, default)
   return default
 end
 
-function setattr(obj, key, value)
+function setattr(obj, key, value, ...)
+  require_args(obj, key, value)
+  nonrequire_args(...)
   metacall(obj, "__setattr__", key, value)
 end
 
-function hasattr(obj, key)
+function hasattr(obj, key, ...)
+  require_args(obj, key)
+  nonrequire_args(...)
   return metacall(obj, "__hasattr__", key)
 end
 
-function delattr(obj, key)
+function delattr(obj, key, ...)
+  require_args(obj, key)
+  nonrequire_args(...)
   return metacall(obj, "__delattr__", key)
 end
 
-function isinstance(object, target)
-  getmetatable(object)
-
-end
-
 local function raw_compare(a, b, func)
+  require_args(a, b, func)
   local am, bm, status, result
   am = getmetatable(a)
   bm = getmetatable(b)
@@ -328,6 +370,7 @@ local function raw_compare(a, b, func)
 end
 
 local function define_class(meta, obj, ...)
+  require_args(meta, obj, ...)
   local cls, mro
   cls = {}
   mro = {}
@@ -335,9 +378,16 @@ local function define_class(meta, obj, ...)
   assert(obj.__name__)
 
   args = {...}
+  textend(cls, object)
+  table.insert(mro, object)
+
   for key, value in pairs(args) do
     textend(cls, value)
-    table.insert(mro, cls)
+    table.insert(mro, value)
+    for value in pairs(value.mro()) do
+      -- FIX HERE (remove dup)
+      table.insert(mro, value)
+    end
   end
 
   cls.__mro__ = mro
@@ -354,55 +404,56 @@ end
 object = {
   __name__ = "object",
   ___py___ = TAG,
-  __id = 0,
 
   __index = function (self, key)
+    require_args(key)
     return getattr(self, key)
   end,
   __newindex = function(self, key, value)
+    require_args(key, value)
     return setattr(self, key, value)
   end,
   __call = function (self, ...)
     return metacall(self, "__call__", ...)
   end,
-  __tostring = function (self, ...)
-    return metacall(self, "__str__", ...)
+  __tostring = function (self)
+    return metacall(self, "__str__")
   end,
-  __unm = function (self, ...)
-    return metacall(self, "__neg__", ...)
+  __unm = function (self)
+    return metacall(self, "__neg__")
   end,
-  __add = function (self, ...)
-    return metacall(self, "__add__", ...)
+  __add = function (self, other)
+    return metacall(self, "__add__", other)
   end,
-  __sub = function (self, ...)
-    return metacall(self, "__sub__", ...)
+  __sub = function (self, other)
+    return metacall(self, "__sub__", other)
   end,
-  __mul = function (self, ...)
-    return metacall(self, "__mul__", ...)
+  __mul = function (self, other)
+    return metacall(self, "__mul__", other)
   end,
-  __div = function (self, ...)
-    return metacall(self, "__div__", ...)
+  __div = function (self, other)
+    return metacall(self, "__div__", other)
   end,
-  __mod = function (self, ...)
-    return metacall(self, "__mod__", ...)
+  __mod = function (self, other)
+    return metacall(self, "__mod__", other)
   end,
-  __pow = function (self, ...)
-    return metacall(self, "__pow__", ...)
+  __pow = function (self)
+    return metacall(self, "__pow__", other)
   end,
   __concat = function (self, other)
     return tostring(self)..tostring(other)
   end,
-  __len = function (self, ...)
-    return metacall(self, "__len__", ...)
+  __len = function (self)
+    return metacall(self, "__len__")
   end,
-  __eq = function (self, ...)
-    return metacall(self, "__eq__", ...)
+  __eq = function (self, other)
+    return metacall(self, "__eq__", other)
   end,
-  __lt = function (self, ...)
-    return metacall(self, "__lt__", ...)
+  __lt = function (self, other)
+    return metacall(self, "__lt__", other)
   end,
-  __le = function (self, ...)
-    return metacall(self, "__le__", ...)
+  __le = function (self, other)
+    return metacall(self, "__le__", other)
   end,
 
   __new__ = function(cls, ...)
@@ -414,7 +465,9 @@ object = {
 
     return instance
   end,
-  __getattribute__ = function(self, key)
+  __getattribute__ = function(self, key, ...)
+    require_args(key)
+    nonrequire_args(...)
     local value, mtable
 
     value = rawget(self, key)
@@ -423,7 +476,7 @@ object = {
     mtable = getmetatable(self)
     value = rawget(mtable, key)
     if value ~= nil then
-      if rawtype(value) == "function" then
+      if lua.type(value) == "function" then
         return function (...)
           return value(self, ...)
         end
@@ -432,33 +485,45 @@ object = {
       end
     end
   end,
-  __setattr__ = function(self, key, value)
+  __setattr__ = function(self, key, value, ...)
+    require_args(key, value)
+    nonrequire_args(...)
     rawset(self, key, value)
   end,
-  __delattr__ = function(self, key)
+  __delattr__ = function(self, key, ...)
+    require_args(key)
+    nonrequire_args(...)
     rawset(obj, key, nil)
   end,
-  __hasattr__ = function(self, key)
+  __hasattr__ = function(self, key, ...)
+    nonrequire_args(...)
     return getattr(self, key) ~= nil
   end,
   __str__ = function(self, ...)
+    nonrequire_args(...)
     return metacall(self, "__repr__", ...)
   end,
   __lua__ = function (self)
     return self
   end,
-  __eq__ = function(self, other)
+  __eq__ = function(self, other, ...)
+    require_args(other)
+    nonrequire_args(...)
     return raw_compare(self, other, function ()
       return self == other
     end)
   end,
-  __lt__ = function(self, other)
+  __lt__ = function(self, other, ...)
+    require_args(other)
+    nonrequire_args(...)
     return raw_compare(self, other, function ()
       return self < other
     end)
   end,
-  __le__ = function(self, ...)
-    return metacall(self, "__eq__", ...) and metacall(self, "__lt__", ...)
+  __le__ = function(self, other, ...)
+    require_args(other)
+    nonrequire_args(...)
+    return metacall(self, "__eq__", other) and metacall(self, "__lt__", other)
   end,
 
   __repr__ = function(self)
@@ -493,10 +558,6 @@ ptype = textend(tcopy(type), {
         error("This is not vaild python obj."..tostring(args[1]))
       end
 
-      if args[1] == type then
-        return type
-      end
-
       return getmetatable(args[1])
     elseif #args == 3 then
 
@@ -506,7 +567,7 @@ ptype = textend(tcopy(type), {
   end
 })
 
-type = define_class(ptype, type, object)
+type = define_class(ptype, type)
 object = define_class(type, object)
 
 function __build_class__(cls, name, ...)
@@ -519,14 +580,28 @@ function __build_class__(cls, name, ...)
 end
 
 BaseException = __build_class__({
+  __init__ = function (self, ...)
+    self.args = tuple({...})
+  end,
   __repr__ = function (self)
-    return "BaseException("..repr(self.args)..")"
+    return type(self).self.."(*"..repr(self.args)..")"
+  end,
+  __str__ = function (self)
+    if isinstance(self.args, tuple) then
+      if len(self.args) ~= int(1) then
+        return repr(self.args)
+      else
+        return self.args.__getitem__(0)
+      end
+    else
+      return repr(self.args)
+    end
   end
 }, "BaseException")
 
 Exception = __build_class__({
 
-}, "Exception")
+}, "Exception", BaseException)
 
 ListTupleMixin = {
   __init__ = function(self, value)
@@ -539,7 +614,7 @@ ListTupleMixin = {
   end,
 
   _check_iter_values_only = function(self, value)
-    if rawtype(value) == "table" then
+    if lua.type(value) == "table" then
       if #value == 0 then
         return true
       elseif value[#value] == nil then
@@ -559,7 +634,24 @@ ListTupleMixin = {
 list = __build_class__(tsub(ListTupleMixin, {
   __getitem__ = function(self, key)
     local value
-    key = to_luaobj(key) - 1
+
+    key = to_pyobj(key)
+    if not isinstance(key, int) then
+      error("FAIL")
+    end
+
+    key = key.value - 1
+    value = self.value[key]
+
+    if value == nil then
+      error("KeyError")
+    else
+      return value
+    end
+  end,
+  __setitem__ = function(self, key)
+    local value
+    key = to_luaobj(key) + 1
     value = self.value[key]
 
     if value == nil then
@@ -587,10 +679,51 @@ list = __build_class__(tsub(ListTupleMixin, {
   end
 }), "list")
 
-function do_math_calc(self, other, func)
-  local cls = getmetatable(self)
-  other = to_pyobj(other)
+tuple = __build_class__(tsub(ListTupleMixin, {
+  __getitem__ = function(self, key)
+    local value
 
+    key = to_pyobj(key)
+    if not isinstance(key, int) then
+      error("FAIL")
+    end
+
+    key = key.value + 1
+    value = self.value[key]
+
+    if value == nil then
+      error("KeyError")
+    else
+      return value
+    end
+  end,
+  __repr__ = function(self)
+    local insert = table.insert
+    local buf = {}
+
+    insert(buf, "(")
+    for value in pairs(self.value) do
+      insert(buf, repr(value))
+      insert(buf, ", ")
+    end
+
+    if #buf > 1 then
+      table.remove(buf)
+    end
+
+    insert(buf, ")")
+    return table.concat(buf)
+  end,
+  __len__ = function(self)
+    return #self.value
+  end
+}), "tuple")
+
+local function do_math_calc(self, other, func)
+  local cls = type(self)
+  local value
+
+  other = to_pyobj(other)
   value = func(self.value, other.value)
   if isinstance(self, float) or isinstance(other, float) then
     cls = float
@@ -601,15 +734,17 @@ function do_math_calc(self, other, func)
   return cls(value)
 end
 
+local function do_math_compare_calc(self, other, func)
+  local cls = type(self)
+  local value
+
+  other = to_pyobj(other)
+  return func(self.value, other.value)
+end
+
 NumberMixIn = {
   __init__ = function(self, value)
     self.value = value
-  end,
-  __repr__ = function(self)
-    return tostring(self.value)
-  end,
-  __lua__ = function(self)
-    return self.value
   end,
   __repr__ = function(self)
     return tostring(self.value)
@@ -647,15 +782,165 @@ NumberMixIn = {
       return a ^ b
     end)
   end,
+  __lt__ = function(self, other)
+    return do_math_compare_calc(self, other, function(a, b)
+      return a < b
+    end)
+  end,
+  __le__ = function(self, other)
+    return do_math_compare_calc(self, other, function(a, b)
+      return a <= b
+    end)
+  end,
+  __eq__ = function(self, other)
+    return do_math_compare_calc(self, other, function(a, b)
+      return a == b
+    end)
+  end,
   __neg__ = function(self)
     return getmetatable(self)(-self.value)
   end
 }
 
+local int_dict = {}
 int = __build_class__(tsub(NumberMixIn, {
   __init__ = function(self, value)
     self.value = math.floor(value)
-  end
+  end,
+  __new__ = function (cls, num) -- support base are later
+    local value
+
+    if int_dict[num] then
+      return int_dict[num]
+    elseif -16 <= num and num <= 256 then
+      value = object.__new__(cls, num)
+      int_dict[num] = value
+      return value
+    end
+  end,
 }), "int")
 
+bool = __build_class__({
+  __init__ = function(self, value)
+    if value == true or value == false then
+    elseif type(value).__len__ then
+      value = to_luaobj(len(value)) ~= 0
+    else
+      value = not (not value)
+    end
+
+    self.value = value
+  end,
+  __repr__ = function(self)
+    if self.value == true then
+      return "True"
+    elseif self.value == false then
+      return "False"
+    end
+  end
+}, "bool")
+
+local NoneType = __build_class__({
+  __init__ = function(self)
+    if _G.None then
+      error("None can't init multiple time.")
+    end
+  end,
+  __repr__ = function(self)
+    return "None"
+  end
+}, "NoneType")
+
 float = __build_class__(NumberMixIn, "float")
+
+str = __build_class__({
+  __init__ = function(self, value)
+    if is_pyobj(value) then
+      value = value.__str__()
+    elseif value == nil then
+      value = "nil"
+    else
+      value = tostring(value)
+    end
+
+    self.value = value
+  end,
+  __str__ = function(self)
+    return self.value
+  end,
+  __repr__ = function(self)
+    return "/'"..self.value.."'/"
+  end,
+  __len__ = function(self)
+    return #self.value
+  end,
+  __lua__ = function(self)
+    return self.value
+  end
+}, "str")
+
+True = bool(true)
+False = bool(false)
+None = NoneType()
+
+function parse_call(func, ...)
+  local tArgs = {...}
+  if isinstance(tArgs[#tArgs]) then
+
+  end
+
+  table.remove(0)
+end
+
+function _OP__and__(a, b)
+  return bool(a) == True and bool(b) == True
+end
+
+function _OP__or__(a, b)
+  return bool(a) == True or bool(b) == True
+end
+
+function _OP__not__(a)
+  -- # later: Fix the metacall
+  return a.__not__()
+end
+
+function _OP__ASSIGN_ITEM__(a, k, v)
+  return a.__setitem__(k, v)
+end
+
+function _OP__add__(a, b)
+  return to_pyobj(a) + to_pyobj(b)
+end
+
+function _OP__sub__(a, b)
+  return to_pyobj(a) - to_pyobj(b)
+end
+
+function _OP__mul__(a, b)
+  return to_pyobj(a) * to_pyobj(b)
+end
+
+function _OP__div__(a, b)
+  return to_pyobj(a) / to_pyobj(b)
+end
+
+function _OP__in__(a, b)
+  return bool(metacall(a, "__contains__", b)) == True
+end
+
+function _OP__notin__(a, b)
+  return a.__contains__(b)
+end
+
+function _OP__UNPACK__(v, limit)
+
+end
+
+
+
+
+print(True)
+print(None)
+print(isinstance(Exception(), BaseException))
+raise(Exception())
