@@ -87,15 +87,6 @@ class ShowTree(ast.NodeVisitor):
         finally:
             self.level -= 1
 
-with open("py_API.lua") as fp:
-    py_API = fp.read()
-
-py_API_FNAMES = set()
-for line in py_API.splitlines():
-    fname = line.partition("function")[2].partition("(")[0].strip()
-    if fname and "." not in fname:
-        py_API_FNAMES.add(fname)
-
 class IsControlFlow(Exception):
     pass
 
@@ -156,50 +147,49 @@ class LuaCodeGenerator(ast.NodeVisitor):
             pass
 
     def generic_visit(self, node):
-        raise TypeError("%r are not supported by py2lua" % (type(node),))
+        raise TypeError("%r are not supported by py2lua (did you call direct?)" % (type(node),))
 
     def visit_Module(self, node):
         self.reset()
         print = self.print
-        print('-- PYTHON ARE REQUIRE FOR RUN --')
-        print("assert(py, 'Require Python API')")
-        print("pyctx = py.init_module_context()")
-        print("local", TEMP_VNAME, "= nil -- So cute! >_</")
+        print('-- PYTHON ARE REQUIRE FOR EXECUTE --')
+        print("assert(__py__, 'Require Python API')")
+        print("__py__._init_module()")
+        print("local", TEMP_VNAME)
         print()
 
         for subnode in node.body:
-            #print()
-            #print("-- [ LINE %i (LUA %i) ] --" % (subnode.lineno, self.lineno))
             with self.hasblock():
                 print(self.visit(subnode))
 
         return self.fp.getvalue()
 
-
     # -- Literals -- #
     def visit_Num(self, node):
         with self.noblock():
-            if isinstance(node.n, complex):
-                raise TypeError("complex are not supported by py2lua")
-
-            return repr(node.n)
+            if isinstance(node.n, int):
+                return "int(%r)" % (node.n)
+            elif isinstance(node.n, float):
+                return "float(%r)" % (node.n)
+            else:
+                raise TypeError("%r are not supported by py2lua" % (type(node.n),))
 
     def visit_Str(self, node):
         with self.noblock():
-            return repr(node.s)
+            return "str(%r)" % node.s
 
     def visit_List(self, node):
         with self.noblock():
-            return "{%s}" % (", ".join(map(self.visit, node.elts)))
+            return "list({%s})" % (", ".join(map(self.visit, node.elts)))
 
     def visit_Tuple(self, node):
         with self.noblock():
-            return "{%s}" % (", ".join(map(self.visit, node.elts)))
+            return "tuple({%s})" % (", ".join(map(self.visit, node.elts)))
 
     def visit_Dict(self, node):
         with self.noblock():
             has_content = False
-            result = "{"
+            result = "dict({"
 
             for key, value in zip(node.keys, node.values):
                 has_content = True
@@ -208,28 +198,14 @@ class LuaCodeGenerator(ast.NodeVisitor):
             if has_content:
                 result = result[:-len(", ")]
 
-            result += "}"
+            result += "})"
             return result
 
 
     # -- Variables -- #
     def visit_Name(self, node):
         with self.noblock():
-            name = node.id
-            if name == "None":
-                return LUA_None
-            elif name == "True":
-                return LUA_True
-            elif name == "False":
-                return LUA_False
-            elif name == "int":
-                return "tonumber"
-            elif name == "str":
-                return "tostring"
-            elif name in py_API_FNAMES:
-                return "py." + name
-            else:
-                return name
+            return node.id
 
 
     # -- Expressions -- #
@@ -288,7 +264,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
 
     def visit_IfExp(self, node):
         with self.noblock():
-            return "py.ifexp(%s, %s, %s)" % (
+            return "_OP__IFEXP__(%s, %s, %s)" % (
                 self.visit(node.test),
                 self.visit(node.body),
                 self.visit(node.orelse),
@@ -311,12 +287,12 @@ class LuaCodeGenerator(ast.NodeVisitor):
             for op, value in zip(node.ops, node.comparators):
                 value = self.visit(value)
 
-                if isinstance(op, (ast.In, ast.NotIn)):
+                if isinstance(op, (ast.Is, ast.IsNot, ast.In, ast.NotIn)):
                     op = op.__class__.__name__
                     last = body.pop()
                     if last.startswith(" and "):
                         last = last[len(" and "):]
-                    body.append("py.op.%s(%s, %s)" % (op, last, value))
+                    body.append("_OP__%s__(%s, %s)" % (op, last, value))
                 else:
                     op = self.visit(op)
 
@@ -332,8 +308,6 @@ class LuaCodeGenerator(ast.NodeVisitor):
     visit_LtE = lambda self, node: " <= "
     visit_Gt = lambda self, node: " > "
     visit_GtE = lambda self, node: " <= "
-    visit_Is = lambda self, node: " is "
-    visit_IsNot = lambda self, node: " is not "
 
 
     # -- Subscripting -- #
@@ -343,9 +317,9 @@ class LuaCodeGenerator(ast.NodeVisitor):
         with self.noblock():
             name = self.visit(node.value)
             if isinstance(node.slice, ast.Index):
-                return "py.index(%s, %s)" % (name, self.visit(node.slice))
+                return "_OP__subscript__(%s, %s)" % (name, self.visit(node.slice))
             else:
-                return "py.slicing(%s, %s)" % (name, self.visit(node.slice))
+                return "_OP__subscript__(%s, %s)" % (name, self.visit(node.slice))
 
     def visit_Index(self, node):
         with self.noblock():
@@ -359,11 +333,12 @@ class LuaCodeGenerator(ast.NodeVisitor):
 
         with self.noblock():
             sinfo = tuple(map(visit_SInfo, (node.lower, node.upper, node.step)))
-            return "py.slice(%s, %s, %s)" % sinfo
+            return "slice(%s, %s, %s)" % sinfo
 
     def visit_ExtSlice(self, node):
         with self.noblock():
-            return "{%s}" % ", ".join(map(self.visit, node.dims))
+            # TODO: self.visit(tupleAST)
+            return "tuple(%s)" % ", ".join(map(self.visit, node.dims))
 
     # -- Comprehensions -- #
 
@@ -402,7 +377,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
             if len(node.targets) > 1:
                 multi = True
                 if visit_TestNeedAssignPack(node.value):
-                    result = "%s = py.pack(%s)" % (tvalue, self.visit(node.value))
+                    result = "%s = pack(%s)" % (tvalue, self.visit(node.value))
                 else:
                     result = "%s = %s" % (tvalue, self.visit(node.value))
             else:
@@ -434,7 +409,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
                     self.current_block["global_defined"].add(vname)
                     self.current_block["defined"].add(vname)
 
-                    result += "; py.assign_subscript(%s, %s, %s)" % (pname, index, tvalue)
+                    result += "; _OP__ASSIGN_ITEM__(%s, %s, %s)" % (pname, index, tvalue)
                 elif isinstance(target, ast.Tuple):
                     def visit_AssignTargets(node):
                         if isinstance(node, ast.Name):
@@ -455,14 +430,12 @@ class LuaCodeGenerator(ast.NodeVisitor):
                             starred = no
 
                     if starred is None:
-                        # TODO: choice one, unpack or py.unpack use.
-                        result += "; %s = unpack(%s)" % (var, tvalue)
+                        # TODO: choice one, lua.unpack or unpack use.
+                        result += "; %s = lua.unpack(%s)" % (var, tvalue)
                     else:
-                        result += "; %s = py.unpack(%s, %i)" % (var, tvalue, starred)
+                        result += "; %s = unpack(%s, %i)" % (var, tvalue, starred)
 
-            if multi:
-                result += "; %s = %s" % (tvalue, LUA_None)
-            else:
+            if not multi:
                 assert result.startswith("; ")
                 result = result[len("; "):]
 
@@ -481,21 +454,29 @@ class LuaCodeGenerator(ast.NodeVisitor):
 
     def visit_Pass(self, node):
         with self.noblock():
-            return "%s = %s" % (TEMP_VNAME, LUA_None)
+            return "--pass"
 
     # -- Imports -- #
     def visit_Import(self, node):
         result = ""
         with self.noblock():
+            # TODO: import.
             for alias in node.names:
                 assert isinstance(alias, ast.alias)
-                result += "; py.import(%r, %s)" % (alias.name, alias.name)
-                if alias.asname:
-                    AsNameAst = ast.Assign(targets=[
-                        ast.Name(id=alias.asname, ctx=ast.Store()),
-                    ], value=ast.Name(id=alias.name, ctx=ast.Load()))
+                locstr = ""
+                if alias.asname not in self.current_block["defined"]:
+                    self.current_block["local_defined"].add(alias.asname)
+                    self.current_block["defined"].add(alias.asname)
+                    locstr = "local "
 
-                    result += "; %s" % (self.visit(AsNameAst))
+                result += "; %s%s = import(%r)" % (locstr, alias.asname or alias.name, alias.name)
+                if alias.asname:
+                    pass
+##                    AsNameAst = ast.Assign(targets=[
+##                        ast.Name(id=alias.asname, ctx=ast.Store()),
+##                    ], value=ast.Name(id=alias.name, ctx=ast.Load()))
+##
+##                    result += "; %s" % (self.visit(AsNameAst))
                     # TODO: make common local define (or global)
 
         print = self.print
@@ -543,7 +524,7 @@ class LuaCodeGenerator(ast.NodeVisitor):
             target = target[+1:-1]
 
         iter = self.visit(node.iter)
-        iter = "py.iter(%s)" % (iter,)
+        iter = "iter(%s)" % (iter,)
 
         print("for", target, "in", iter, "do")
         with self.block():
@@ -657,12 +638,56 @@ class LuaCodeGenerator(ast.NodeVisitor):
 
         print("function %s(%s)" % (fname, fargs))
         with self.block():
+            print("local", TEMP_VNAME)
             if node.args.varargannotation:
                 print("local %s = arg" % (node.args.varargannotation,))
             for subnode in node.body:
                 with self.hasblock():
                     print(self.visit(subnode))
         print("end")
+
+        for decorator in node.decorator_list:
+            print("%s = %s(%s)" % (fname, self.visit(decorator), fname))
+
+        raise IsControlFlow
+
+        def visit_Call(self, node):
+            with self.noblock():
+                func = self.visit(node.func)
+                args = ", ".join(map(self.visit, node.args))
+
+                assert not node.keywords
+                assert node.starargs is None
+                assert node.kwargs is None
+
+                return "%s(%s)" % (func, args)
+
+    def visit_ClassDef(self, node):
+        print = self.print
+
+        print(TEMP_VNAME, "= function ()")
+        with self.block():
+            print("local", TEMP_VNAME)
+            for subnode in node.body:
+                with self.hasblock():
+                    print(self.visit(subnode))
+        print("end")
+
+        fname = node.name
+        classmakeAST = ast.Call(
+            func=ast.Name(id='__build_class__', ctx=ast.Load()),
+            args=[ast.Name(id=TEMP_VNAME, ctx=ast.Load()), ast.Str(fname)] + node.bases,
+            keywords=node.keywords,
+            starargs=node.starargs,
+            kwargs=node.kwargs,
+        )
+
+        if fname not in self.current_block["defined"]:
+            self.current_block["local_defined"].add(fname)
+            self.current_block["defined"].add(fname)
+            print("local", end=" ")
+
+        print(fname, "=", self.visit(classmakeAST))
         for decorator in node.decorator_list:
             print("%s = %s(%s)" % (fname, self.visit(decorator), fname))
 
@@ -741,22 +766,11 @@ class LuaCodeGeneratorNotSupported(LuaCodeGenerator):
                 self.visit(value)
 
 code = """\
-import os
-import peripheral as device
-tinfo = 0
-tinfo **= 1
-a, b = 1, 2
-def test():
-    test = 1
-    def test2():
-        nonlocal test
-        test = 2
-        print(test)
-a, b = b, a
+t = 3
 """
 
 def main():
-    codetree = ast.parse(code)
+    codetree = ast.parse(code, mode="single")
 
     print("===== INPUT ====")
     print(code)
