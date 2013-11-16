@@ -419,7 +419,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             elif isinstance(target, Subscript):
                 return [self.make_op(target, target.value, target.slice, value)]
 
-        node = self.nongeneric_visit(node, "value")
+        node.value = self.visit(node.value)
         return nest(node.targets[0], node.value)
 
     def visit_Assert(self, node):
@@ -467,28 +467,6 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
     def visit_IfExp(self, node):
         return self.visit_If(node)
 
-    def nongeneric_visit(self, node, field):
-        old_value = getattr(node, field, None)
-        if isinstance(old_value, list):
-            new_values = []
-            for value in old_value:
-                if isinstance(value, AST):
-                    value = self.visit(value)
-                    if value is None:
-                        continue
-                    elif not isinstance(value, AST):
-                        new_values.extend(value)
-                        continue
-                new_values.append(value)
-            old_value[:] = new_values
-        elif isinstance(old_value, AST):
-            new_node = self.visit(old_value)
-            if new_node is None:
-                delattr(node, field)
-            else:
-                setattr(node, field, new_node)
-        return node
-
     def visit_For(self, node):
         vtemp = self.get_tvar()
         node_target = node.target
@@ -499,7 +477,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         )
 
         node.body.insert(0, Assign(node_target, vtemp))
-        node = self.nongeneric_visit(node, "body")
+        node.body = self.visit(node.body)
         return node
 
 class LiteLuaGenerator(BlockBasedCodeGenerator):
@@ -564,12 +542,16 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_Call(self, node):
         with self.noblock():
             func = self.visit(node.func)
-            args = ", ".join(map(self.visit, node.args))
+            args = list(map(self.visit, node.args))
 
             assert not node.keywords
-            assert node.starargs is None
             assert node.kwargs is None
 
+            if node.starargs:
+                assert(node.starargs, Starred)
+                args.append("unpack(%s)" % (self.visit(node.starargs)))
+
+            args = ", ".join(args)
             return "%s(%s)" % (func, args)
 
     def visit_arg(self, node):
@@ -589,6 +571,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 block.define(target)
 
             return "%s%s = %s" % (define, target, value)
+
+    def visit_Pass(self, node):
+        raise IsControlFlow
 
     def visit_If(self, node):
         print = self.print
@@ -614,10 +599,201 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         print("end")
         raise IsControlFlow
 
+    def visit_For(self, node):
+        print = self.print
+
+        zrand = random.randint(100000, 999999)
+        hascont = False
+        contname = ""
+        hasbreak = False
+        breakname = ""
+
+        target = self.visit(node.target)
+        iter = self.visit(node.iter)
+
+        print("for", target, "in", iter, "do")
+        with self.block():
+            for subnode in node.body:
+                if isinstance(subnode, ast.Continue):
+                    hascont = True
+                    contname = "ZCONT_%i" % zrand
+                    print("goto", contname, '-- continue')
+                elif isinstance(subnode, ast.Break) and node.orelse:
+                    hasbreak = True
+                    breakname = "ZBREAK_%i" % zrand
+                    print("goto", breakname, '-- break')
+                else:
+                    with self.hasblock():
+                        print(self.visit(subnode))
+
+            if hascont:
+                print("::", contname, "::", sep="")
+        print("end")
+
+        if node.orelse:
+            for subnode in node.orelse:
+                with self.hasblock():
+                    print(self.visit(subnode))
+
+        if hasbreak:
+            print("::", breakname, "::", sep="")
+
+        raise IsControlFlow
+
+    def visit_While(self, node):
+        print = self.print
+
+        zrand = random.randint(100000, 999999)
+        hascont = False
+        contname = ""
+        hasbreak = False
+        breakname = ""
+
+        print("while", self.visit(node.test), "do")
+        with self.block():
+            for subnode in node.body:
+                if isinstance(subnode, ast.Continue):
+                    hascont = True
+                    contname = "ZCONT_%i" % zrand
+                    print("goto", contname, '-- continue')
+                elif isinstance(subnode, ast.Break) and node.orelse:
+                    hasbreak = True
+                    breakname = "ZBREAK_%i" % zrand
+                    print("goto", breakname, '-- break')
+                else:
+                    with self.hasblock():
+                        print(self.visit(subnode))
+
+            if hascont:
+                print("::", contname, "::", sep="")
+        print("end")
+
+        if node.orelse:
+            for subnode in node.orelse:
+                with self.hasblock():
+                    print(self.visit(subnode))
+
+        if hasbreak:
+            print("::", breakname, "::", sep="")
+
+        raise IsControlFlow
+
+    # -- Function and class definitions -- #
+    def visit_FunctionDef(self, node):
+        print = self.print
+        fname = node.name
+        fargs = list(map(self.visit, node.args.args))
+
+        vararg = node.args.vararg
+        if vararg:
+            fargs.append("...")
+
+        #assert not node.args.vararg
+        assert not node.args.kwonlyargs
+        assert not node.args.varargannotation
+        assert not node.args.kwarg
+        assert not node.args.kwargannotation
+        assert not node.args.defaults
+        assert not node.args.kw_defaults
+        assert not node.returns
+
+        block = self.current_block
+        if not block.is_defined(fname):
+            block.local_define(fname)
+            print("local", end=" ")
+
+        fargs = ", ".join(fargs)
+        print("function %s(%s)" % (fname, fargs))
+        with self.block():
+            block = self.current_block
+            if vararg:
+                block.local_define(vararg)
+                print("local %s = {...}" % (vararg,))
+
+            for subnode in node.body:
+                with self.hasblock():
+                    print(self.visit(subnode))
+        print("end")
+
+        for decorator in node.decorator_list:
+            print("%s = %s(%s)" % (fname, self.visit(decorator), fname))
+
+        raise IsControlFlow
+
+    def visit_Lambda(self, node):
+        with self.noblock():
+            args = list(map(self.visit, node.args.args))
+
+        vararg = node.args.vararg
+        if vararg:
+            args.append("...")
+
+        assert not node.args.kwonlyargs
+        assert not node.args.varargannotation
+        assert not node.args.kwarg
+        assert not node.args.kwargannotation
+        assert not node.args.defaults
+        assert not node.args.kw_defaults
+
+        class LambdaVarargTransfomer(ast.NodeTransformer):
+            def visit_Name(self, node):
+                if node.id == vararg:
+                    return List([Name("...", Load())], Store()) # FIXME
+                return node
+
+        if vararg:
+            transformer = LambdaVarargTransfomer()
+            node.body = transformer.visit(node.body)
+
+        args = ", ".join(args)
+        result = "(function(%s) " % args
+        with self.noblock():
+            result += self.visit(node.body)
+        result += " end)"
+
+        return result
+
+    def visit_Return(self, node):
+        return "return %s" % self.visit(node.value)
+
+    def visit_Break(self, node):
+        return "break"
+
+    def visit_Global(self, node):
+        block = self.current_block
+        for name in node.names:
+            block.global_define(name)
+
+        # self.print("-- global %s" % ", ".join(node.names))
+        raise IsControlFlow
+
+    def visit_Nonlocal(self, node):
+        block = self.current_block
+        for name in node.names:
+            block.nonlocal_define(name)
+
+        # self.print("-- nonlocal %s" % ", ".join(node.names))
+        raise IsControlFlow
+
+    # visit_Raise... how to?
+
 code = """\
 if 3:
     print("!")
-print(3)
+
+global node
+node = (1, 2, 3)
+print(3, *node)
+lambda *test: print(*test)
+
+def test(a, b, c, *d):
+    pass
+
+for i in pairs(t):
+    pass
+
+while True:
+    print(2)
 """
 
 def main():
@@ -630,12 +806,14 @@ def main():
     showtree(codetree)
     print()
 
-    print("===== TREE (LITE) =====")
-    cls = FullPythonCodeTransformer()
-    cls.visit(codetree)
+    LITE = 0
+    if LITE:
+        print("===== TREE (LITE) =====")
+        cls = FullPythonCodeTransformer()
+        cls.visit(codetree)
 
-    showtree(codetree)
-    print()
+        showtree(codetree)
+        print()
 
     print("===== OUTPUT =====")
     print(LiteLuaGenerator().visit(codetree))
