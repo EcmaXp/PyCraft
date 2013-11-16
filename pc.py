@@ -237,10 +237,16 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         extra.update(vtemp=0)
         return PythonBlockEnvManger(**extra)
 
+    def visit(self, node):
+        if not getattr(node, "translated", False):
+            return super().visit(node)
+        return node
+
     def rvisit(self, node):
         return self.generic_visit(node)
 
     def rfix(self, node):
+        node.translated = True
         return node
 
     def get_tvar(self):
@@ -259,9 +265,9 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             kwargs=None,
         ))
 
-    def make_literal(self, node):
+    def make_literal(self, node, *, fname=None):
         # TODO: disable some object by apply rvisit.
-        fname = type(node).__name__.lower()
+        fname = fname.__name__ or type(node).__name__.lower()
         return self.rfix(Call(
             func=Name(fname, Load()),
             args=[node],
@@ -279,26 +285,26 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         return self.make_call(fname, *op)
 
     def visit_Num(self, node):
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.n))
 
     def visit_Str(self, node):
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.s))
 
     def visit_List(self, node):
         node = self.rvisit(node)
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.elts))
 
     def visit_Tuple(self, node):
         node = self.rvisit(node)
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.elts))
 
     def visit_Dict(self, node):
         node = self.rvisit(node)
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.elts))
 
     def visit_Set(self, node):
         node = self.rvisit(node)
-        return self.make_literal(node)
+        return self.make_literal(node, fname=type(node.elts))
 
     def visit_UnaryOp(self, node):
         return self.make_op(node.operand, node.op)
@@ -321,29 +327,13 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 ##            return "%s(%s)" % (func, args)
 
     def visit_Compare(self, node):
-        with self.noblock():
-            assert node.ops
-            assert node.comparators
-            ret = self.visit(node.left)
+        ret = self.visit(node.left)
 
-            for op, value in zip(node.ops, node.comparators):
-                value = self.visit(value)
+        for op, value in zip(node.ops, node.comparators):
+            value = self.visit(value)
+            ret = self.make_op(op, ret, value)
 
-                if isinstance(op, (ast.Is, ast.IsNot, ast.In, ast.NotIn)):
-                    op = op.__class__.__name__
-                    last = body.pop()
-                    if last.startswith(" and "):
-                        last = last[len(" and "):]
-                    body.append("_OP__%s__(%s, %s)" % (op, last, value))
-                else:
-                    op = self.visit(op)
-
-##    visit_Eq = lambda self, node: " == "
-##    visit_NotEq = lambda self, node: " ~= "
-##    visit_Lt = lambda self, node: " < "
-##    visit_LtE = lambda self, node: " <= "
-##    visit_Gt = lambda self, node: " > "
-##    visit_GtE = lambda self, node: " <= "
+        return ret
 
     def visit_Subscript(self, node):
         return self.make_op(node, node.value, node.slice)
@@ -470,7 +460,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 
         del node.test
         self.rvisit(node)
-        node.test = node
+        node.test = node_test
 
         return node
 
@@ -515,7 +505,6 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 class LiteLuaGenerator(BlockBasedCodeGenerator):
     TAB_SIZE = 2
     TAB = TAB_SIZE * " "
-    TEMP_VNAME = "X_X"
 
     def new_blockenv(self, **extra):
         return PythonBlockEnvManger()
@@ -526,11 +515,6 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_Module(self, node):
         self.reset()
         print = self.print
-        print('-- PYTHON ARE REQUIRE FOR EXECUTE --')
-        print("assert(__py__, 'Require Python API')")
-        print("__py__._init_module()")
-        print("local", self.TEMP_VNAME)
-        print()
 
         for subnode in node.body:
             with self.hasblock():
@@ -606,6 +590,30 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
             return "%s%s = %s" % (define, target, value)
 
+    def visit_If(self, node):
+        print = self.print
+        print("if", self.visit(node.test), "then")
+
+        with self.block():
+            for subnode in node.body:
+                with self.hasblock():
+                    print(self.visit(subnode))
+
+        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+            print("else", end="")
+            with self.hasblock():
+                self.visit_If(node.orelse[0])
+            raise IsControlFlow
+        elif node.orelse:
+            print("else")
+            with self.block():
+                for subnode in node.orelse:
+                    with self.hasblock():
+                        print(self.visit(subnode))
+
+        print("end")
+        raise IsControlFlow
+
 code = """\
 if 3:
     print("!")
@@ -614,7 +622,6 @@ print(3)
 
 def main():
     codetree = ast.parse(code, mode="exec")
-
 
     print("===== INPUT ====")
     print(code)
@@ -626,6 +633,7 @@ def main():
     print("===== TREE (LITE) =====")
     cls = FullPythonCodeTransformer()
     cls.visit(codetree)
+
     showtree(codetree)
     print()
 
