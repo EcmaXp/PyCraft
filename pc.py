@@ -1,12 +1,20 @@
 import ast
 from _ast import *
-
+import sys
 import io
 import contextlib
 import weakref
 import random
 
-class ShowTree(ast.NodeVisitor):
+CTYPE_LITE = "LITE"
+CTYPE_FULL = "FULL"
+
+__all__ = [
+    "lua_lite_compile", "lua_full_compile",
+    "print_ast", "print_ast_tree",
+]
+
+class ASTTreePrinter(ast.NodeVisitor):
     @classmethod
     def unresolve(cls, value, raw=False, *, has_ast):
         if isinstance(value, AST):
@@ -81,13 +89,13 @@ class ShowTree(ast.NodeVisitor):
         finally:
             self.level -= 1
 
-def showtree(node):
-    sprinter = ShowTree()
-    sprinter.visit(node)
+def print_ast_tree(node):
+    printer = ASTTreePrinter()
+    printer.visit(node)
 
-def printcode(code, mode="exec"):
+def print_ast(code, mode="exec"):
     codetree = ast.parse(code, mode=mode)
-    showtree(codetree)
+    print_ast_tree(codetree)
 
 class IsControlFlow(Exception):
     pass
@@ -104,9 +112,14 @@ class BaseDefineManager(BaseBlockEnvManager):
     def reset(self):
         self.defined = set()
         self.default_defined = NotImplemented
+        self.defined_type_table = {}
 
     def is_defined(self, value):
         return value in self.defined
+
+    @property
+    def default_defined_type(self):
+        raise NotImplementedError("default_defined is unknown.")
 
     def define(self, value, default_defined=None):
         if self.is_defined(value):
@@ -114,12 +127,25 @@ class BaseDefineManager(BaseBlockEnvManager):
 
         self.defined.add(value)
 
-        if default_defined is None:
+        if default_defined is not None:
+            default_defined.add(value)
+        else:
             if self.default_defined is NotImplemented:
                 raise NotImplementedError("default_defined are not implemented.")
             self.default_defined.add(value)
 
         return True
+
+    def define_short(self, name):
+        if not self.is_defined(name):
+            self.define(name)
+            define_type = self.default_defined_type
+            define_type = self.defined_type_table.get(define_type)
+
+            if define_type:
+                return define_type + " "
+
+        return ""
 
 class CommonDefineManager(BaseDefineManager):
     def reset(self):
@@ -127,6 +153,19 @@ class CommonDefineManager(BaseDefineManager):
 
         self.global_defined = set()
         self.local_defined = set()
+        self.defined_type_table.update({
+            "local" : "local",
+            "global" : "",
+        })
+
+    @property
+    def default_defined_type(self):
+        if self.global_defined is self.default_defined:
+            return "global"
+        elif self.local_defined is self.default_defined:
+            return "local"
+        else:
+            return super().default_defined_type
 
     def global_define(self, value):
         return self.define(value, self.global_defined)
@@ -146,6 +185,16 @@ class PythonDefineManager(CommonDefineManager):
 
         self.nonlocal_defined = set()
         self.default_defined = self.local_defined
+        self.defined_type_table.update({
+            "nonlocal" : "",
+        })
+
+    @property
+    def default_defined_type(self):
+        if self.nonlocal_defined is self.default_defined:
+            return "nonlocal"
+        else:
+            return super().default_defined_type
 
     def nonlocal_define(self, value):
         return self.define(value, self.nonlocal_defined)
@@ -228,6 +277,7 @@ class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
             self.lineno += 1
         self.lastend = kwargs.get("end", "\n")
         print(*args, file=fp, **kwargs)
+        #if args == ("end",): raise
 
     def generic_visit(self, node):
         self.not_support_error(node, action="work with")
@@ -484,6 +534,16 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     TAB_SIZE = 2
     TAB = TAB_SIZE * " "
 
+    Lua_True = "true"
+    Lua_False = "false"
+    Lua_None = "nil"
+
+    Lua_Const = {
+        Lua_True,
+        Lua_False,
+        Lua_None,
+    }
+
     def new_blockenv(self, **extra):
         return PythonBlockEnvManger()
 
@@ -500,6 +560,26 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         return self.fp.getvalue()
 
+    def visit_Interactive(self, node):
+        self.reset()
+        print = self.print
+
+        for subnode in node.body:
+            with self.noblock():
+                print(self.visit(subnode))
+
+        return self.fp.getvalue()
+
+    def visit_Expression(self, node):
+        self.reset()
+        print = self.print
+
+        with self.noblock():
+            print(self.visit(node.body))
+
+        return self.fp.getvalue().rstrip()
+
+    # --- Literals --- #
     def visit_Num(self, node):
         return repr(node.n)
 
@@ -511,6 +591,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             return "{%s}" % (", ".join(map(self.visit, node.elts)))
 
     def visit_Tuple(self, node):
+        with self.noblock():
+            return "{%s}" % (", ".join(map(self.visit, node.elts)))
+
+    def visit_Set(self, node):
         with self.noblock():
             return "{%s}" % (", ".join(map(self.visit, node.elts)))
 
@@ -539,6 +623,86 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         with self.noblock():
             return self.visit(node.value)
 
+    def visit_UnaryOp(self, node):
+        with self.noblock():
+            value = self.visit(node.operand)
+            op = {UAdd:"", USub:"-", Not:"not", Invert:"~"}[type(node.op)]
+
+            if not op:
+                return value
+            elif " " in op:
+                return "%s%s" % (op, value)
+            else:
+                return "(%s%s)" % (op, value)
+
+    def visit_BinOp(self, node):
+        with self.noblock():
+            left = self.visit(node.left)
+            right = self.visit(node.right)
+            op = {
+                Add : "+",
+                Sub : "-",
+                Mult : "*",
+                Div : "/",
+                Mod : "%",
+                Pow : "^",
+            }.get(type(node.op))
+
+            if not op:
+                self.not_support_error(node.op, "op")
+
+            return "(%s %s %s)" % (left, op, right)
+
+    def visit_BoolOp(self, node):
+        with self.noblock():
+            left = self.visit(node.left)
+            right = self.visit(node.right)
+            op = {
+                And : "and",
+                Or : "or",
+            }[type(node.op)]
+
+            return "%s %s %s" % (left, op, right)
+
+    def visit_Compare(self, node):
+        check_const = lambda x: isinstance(x, Name) and x.id in self._Lua_Const
+        with self.noblock():
+            assert len(node.ops) == 1
+            assert len(node.comparators) == 1
+
+            left = node.left
+            op = node.ops[0]
+            right = node.comparators[0]
+
+            if isinstance(op, (Is, IsNot)):
+                if not (check_const(left) or check_const(right)):
+                    self.not_support_error((left, right), "Compare %r with" % op)
+
+                op = {Is : Eq, IsNot : NotEq}[type(op)]()
+            elif isinstance(op, (In, NotIn)):
+                left = Subscript(
+                    value = right,
+                    slice = Index(left),
+                    ctx = Load(),
+                )
+                right = Name(self.Lua_None, Load())
+                op = {In : NotEq, NotIn : Eq}[type(op)]()
+
+            left, right = map(self.visit, (left, right))
+            ops = {
+                Eq : "==",
+                NotEq : "~=",
+                Lt : "<",
+                LtE : "<=",
+                Gt : ">",
+                GtE : ">=",
+            }.get(type(op))
+
+            if not ops:
+                self.not_support_error(op, "op")
+
+            return "%s %s %s" % (left, ops, right)
+
     def visit_Call(self, node):
         with self.noblock():
             func = self.visit(node.func)
@@ -548,137 +712,213 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             assert node.kwargs is None
 
             if node.starargs:
-                assert(node.starargs, Starred)
                 args.append("unpack(%s)" % (self.visit(node.starargs)))
 
             args = ", ".join(args)
             return "%s(%s)" % (func, args)
 
     def visit_arg(self, node):
+        # TODO: remove it and put to visit_Call
         with self.noblock():
             return node.arg
+
+    def visit_IfExp(self, node):
+        with self.noblock():
+            test = self.visit(node.test)
+            body = self.visit(node.body)
+            orelse = self.visit(node.orelse)
+
+            return "((%s and {%s} or {%s})[1])" % (test, body, orelse)
+
+    def visit_Attribute(self, node):
+        with self.noblock():
+            value = self.visit(node.value)
+            attr = node.attr
+
+            return "%s.%s" % (value, attr)
+
+    # -- Subscripting -- #
+    # visit_Subscript must be not direct call from visit, it must different
+    #  when assign or see the value??
+    def visit_Subscript(self, node):
+        with self.noblock():
+            name = self.visit(node.value)
+            index = self.visit(node.slice)
+
+            return "%s[%s]" % (name, index)
+
+    def visit_Index(self, node):
+        with self.noblock():
+            return self.visit(node.value)
+
+    # -- Comprehensions -- #
+
+    # -- Statements -- #
+    def _get_Name(self, node):
+        def nest(x, pure=True):
+            if isinstance(x, (Attribute, Subscript)):
+                return nest(x.value, pure=False)
+            elif isinstance(x, Name):
+                return x.id, pure
+            return None, False
+        return nest(node)
+
+    def visit_AugAssign(self, node):
+        with self.noblock():
+            AssignAST = ast.Assign(
+                targets=[node.target],
+                value = ast.BinOp(node.target, node.op, node.value),
+            )
+
+            name, _ = self._get_Name(node.target)
+            block = self.current_block
+
+            if not block.is_defined(name):
+                raise RuntimeError("Name %s are not defined." % name)
+
+        with self.hasblock():
+            self.visit(AssignAST)
+
+        raise IsControlFlow
 
     def visit_Assign(self, node):
         with self.noblock():
             assert len(node.targets) == 1, node.targets
-            block = self.current_block
-            target = self.visit(node.targets[0])
+            rawtarget = node.targets[0]
+            target = self.visit(rawtarget)
             value = self.visit(node.value)
 
-            define = ""
-            if not block.is_defined(target):
-                define = "local "
-                block.define(target)
+        name, pure = self._get_Name(rawtarget)
+        if name is not None and pure:
+            block = self.current_block
+            define_type = block.define_short(name)
 
-            return "%s%s = %s" % (define, target, value)
+        self.print("%s%s = %s" % (define_type, target, value))
+
+        raise IsControlFlow
+
+    def visit_Assert(self, node):
+        with self.noblock():
+            args = [node.test]
+
+            if node.msg is not None:
+                args.append(node.msg)
+
+
+            args = list(map(self.visit, args))
+
+            return self.visit(Call(
+                func = Name(type(node).__name__.lower(), Load()),
+                args = args,
+                keywords = [],
+                starargs=None,
+                kwargs=None,
+            ))
+
+    def visit_Delete(self, node):
+        for target in node.targets:
+            with self.hasblock():
+                assignAST = Assign(target, Name(self.Lua_None, Load()))
+                self.visit_Assign(assignAST)
 
     def visit_Pass(self, node):
         raise IsControlFlow
 
+    # -- Imports -- #
+    # Imports are not accepted in cc's lua. use os.loadAPI
+
+    # -- Control flow -- #
     def visit_If(self, node):
         print = self.print
-        print("if", self.visit(node.test), "then")
 
+        print("if", self.visit(node.test), "then")
         with self.block():
             for subnode in node.body:
                 with self.hasblock():
                     print(self.visit(subnode))
 
-        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
-            print("else", end="")
-            with self.hasblock():
-                self.visit_If(node.orelse[0])
-            raise IsControlFlow
-        elif node.orelse:
-            print("else")
+        if node.orelse:
+            if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+                print("else", end="")
+                with self.hasblock():
+                    self.visit_If(node.orelse[0])
+                raise IsControlFlow
+            else:
+                print("else")
+                with self.block():
+                    for subnode in node.orelse:
+                        with self.hasblock():
+                            print(self.visit(subnode))
+        print("end")
+
+        raise IsControlFlow
+
+    def _visit_Loop(self, node):
+        print = self.print
+        zrand = random.randint(100000, 999999)
+        hascont = False
+        contname = ""
+        hasbreak = False
+        breakname = ""
+
+        with self.noblock():
             with self.block():
+                for subnode in node.body:
+                    if isinstance(subnode, ast.Continue):
+                        hascont = True
+                        contname = "ZCONT_%i" % zrand
+                        print("goto", contname, '-- continue')
+                    elif isinstance(subnode, ast.Break) and node.orelse:
+                        hasbreak = True
+                        breakname = "ZBREAK_%i" % zrand
+                        print("goto", breakname, '-- break')
+                    else:
+                        with self.hasblock():
+                            print(self.visit(subnode))
+
+                if hascont:
+                    print("::", contname, "::", sep="")
+            print("end")
+
+            if node.orelse:
                 for subnode in node.orelse:
                     with self.hasblock():
                         print(self.visit(subnode))
 
-        print("end")
+            if hasbreak:
+                print("::", breakname, "::", sep="")
+
         raise IsControlFlow
 
     def visit_For(self, node):
         print = self.print
 
-        zrand = random.randint(100000, 999999)
-        hascont = False
-        contname = ""
-        hasbreak = False
-        breakname = ""
-
-        target = self.visit(node.target)
-        iter = self.visit(node.iter)
+        with self.noblock():
+            target = self.visit(node.target)
+            iter = self.visit(node.iter)
 
         print("for", target, "in", iter, "do")
-        with self.block():
-            for subnode in node.body:
-                if isinstance(subnode, ast.Continue):
-                    hascont = True
-                    contname = "ZCONT_%i" % zrand
-                    print("goto", contname, '-- continue')
-                elif isinstance(subnode, ast.Break) and node.orelse:
-                    hasbreak = True
-                    breakname = "ZBREAK_%i" % zrand
-                    print("goto", breakname, '-- break')
-                else:
-                    with self.hasblock():
-                        print(self.visit(subnode))
-
-            if hascont:
-                print("::", contname, "::", sep="")
-        print("end")
-
-        if node.orelse:
-            for subnode in node.orelse:
-                with self.hasblock():
-                    print(self.visit(subnode))
-
-        if hasbreak:
-            print("::", breakname, "::", sep="")
-
-        raise IsControlFlow
+        self._visit_Loop(node)
 
     def visit_While(self, node):
         print = self.print
 
-        zrand = random.randint(100000, 999999)
-        hascont = False
-        contname = ""
-        hasbreak = False
-        breakname = ""
+        with self.noblock():
+            test = self.visit(node.test)
 
-        print("while", self.visit(node.test), "do")
-        with self.block():
-            for subnode in node.body:
-                if isinstance(subnode, ast.Continue):
-                    hascont = True
-                    contname = "ZCONT_%i" % zrand
-                    print("goto", contname, '-- continue')
-                elif isinstance(subnode, ast.Break) and node.orelse:
-                    hasbreak = True
-                    breakname = "ZBREAK_%i" % zrand
-                    print("goto", breakname, '-- break')
-                else:
-                    with self.hasblock():
-                        print(self.visit(subnode))
+        print("while", test, "do")
+        self._visit_Loop(node)
 
-            if hascont:
-                print("::", contname, "::", sep="")
-        print("end")
+    # -- Function and class definitions -- #
+    def _visit_Decorators(self, node):
+        print = self.print
 
-        if node.orelse:
-            for subnode in node.orelse:
-                with self.hasblock():
-                    print(self.visit(subnode))
-
-        if hasbreak:
-            print("::", breakname, "::", sep="")
+        for decorator in node.decorator_list:
+            with self.noblock():
+                print("%s = %s(%s)" % (fname, self.visit(decorator), fname))
 
         raise IsControlFlow
 
-    # -- Function and class definitions -- #
     def visit_FunctionDef(self, node):
         print = self.print
         fname = node.name
@@ -698,12 +938,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.returns
 
         block = self.current_block
-        if not block.is_defined(fname):
-            block.local_define(fname)
-            print("local", end=" ")
+        define_type = block.define_short(fname)
 
         fargs = ", ".join(fargs)
-        print("function %s(%s)" % (fname, fargs))
+        print("%sfunction %s(%s)" % (define_type, fname, fargs))
         with self.block():
             block = self.current_block
             if vararg:
@@ -715,8 +953,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                     print(self.visit(subnode))
         print("end")
 
-        for decorator in node.decorator_list:
-            print("%s = %s(%s)" % (fname, self.visit(decorator), fname))
+        with self.hasblock():
+            self._visit_Decorators(node)
 
         raise IsControlFlow
 
@@ -746,7 +984,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             node.body = transformer.visit(node.body)
 
         args = ", ".join(args)
-        result = "(function(%s) " % args
+        result = "(function(%s) return " % args
         with self.noblock():
             result += self.visit(node.body)
         result += " end)"
@@ -755,9 +993,6 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_Return(self, node):
         return "return %s" % self.visit(node.value)
-
-    def visit_Break(self, node):
-        return "break"
 
     def visit_Global(self, node):
         block = self.current_block
@@ -775,48 +1010,85 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         # self.print("-- nonlocal %s" % ", ".join(node.names))
         raise IsControlFlow
 
-    # visit_Raise... how to?
+    def visit_ClassDef(self, node):
+        print = self.print
 
-code = """\
-if 3:
-    print("!")
+        assert not node.starargs
+        assert not node.kwargs
 
-global node
-node = (1, 2, 3)
-print(3, *node)
-lambda *test: print(*test)
+        metaclass = None
+        for keyword in node.keywords:
+            if keyword.arg != "metaclass":
+                raise NotImplementedError("PEP-3115 are not supported in %s" % type(self).__name__)
 
-def test(a, b, c, *d):
-    pass
+            metaclass = self.visit(keyword.value)
 
-for i in pairs(t):
-    pass
+        name = node.name
+        bases = node.bases
+        block = self.current_block
+        define_type = block.define_short(name)
 
-while True:
-    print(2)
-"""
+        bases = []
+        for base in node.bases:
+            bases.append(self.visit(base))
 
-def main():
-    codetree = ast.parse(code, mode="exec")
+        clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
+        print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
+        with self.block():
+            print("setfenv(1, setmetatable({}, {_G=_G, __index=_G}))")
+            if bases:
+                print("(function(o,c,k,v)", end=" ")
+                print("for k,c in pairs({%s}) do" % ", ".join(bases[::-1]), end=" ")
+                print("for k,v in pairs(c) do", end=" ")
+                print("o[k]=v", end=" ")
+                print("end end end)(getfenv())")
+            print("__name__", name)
 
-    print("===== INPUT ====")
-    print(code)
+            block = self.current_block
+            block.default_defined = block.global_defined
+            # TODO: change type_table for assign out of this class.
 
-    print("===== TREE (FULL) =====")
-    showtree(codetree)
-    print()
+            for subnode in node.body:
+                with self.hasblock():
+                    print(self.visit(subnode))
 
-    LITE = 0
-    if LITE:
-        print("===== TREE (LITE) =====")
+            print("return getfenv()")
+        print("end)(getfenv())")
+
+        if metaclass:
+            print("setmetatable(%s, %s)" % (name, metaclass))
+
+        with self.hasblock():
+            self._visit_Decorators(node)
+
+        raise IsControlFlow
+
+_DEFAULT_COMPILE_MODE = "exec"
+
+def lua_compile(code, codetype, mode=_DEFAULT_COMPILE_MODE):
+    codetree = ast.parse(code, mode=mode)
+
+    if codetype == CTYPE_LITE:
+        pass
+    elif codetype == CTYPE_FULL:
         cls = FullPythonCodeTransformer()
         cls.visit(codetree)
+    else:
+        raise ValueError("codetype must in %r" % {CTYPE_LITE, CTYPE_FULL})
 
-        showtree(codetree)
-        print()
+    return LiteLuaGenerator().visit(codetree)
 
-    print("===== OUTPUT =====")
-    print(LiteLuaGenerator().visit(codetree))
+def lua_lite_compile(code, mode=_DEFAULT_COMPILE_MODE):
+    return lua_compile(code, CTYPE_LITE, mode=mode)
+
+def lua_full_compile(code, mode=_DEFAULT_COMPILE_MODE):
+    return lua_compile(code, CTYPE_FULL, mode=mode)
+
+def main():
+    print(lua_lite_compile("""\
+t = 1
+t += 1
+"""), end="")
 
 if __name__ == '__main__':
     main()
