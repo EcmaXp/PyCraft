@@ -41,7 +41,64 @@ Currently it is not work, but i will fix before 2013-11-17 (my birthday!)
 * http://www.eclipse.org/koneki/ldt/
 * https://code.google.com/p/pyscripter/
 
+## Detail
+### 2 Type's Code
 
+#### Full-Code
+* Almost like real world's python.
+* Support full syntex for python.
+* It need library for running.
+
+#### Lite-Code
+* This have only few syntex. for support Full-Code's Python. (likely RPython, but this is too much simple)
+* Support some syntex that exists in Lua.
+* It don't need any library for run.
+
+### Operator Override
+* __getattr__, __setattr__ : use metatable's __index, __newindex
+* All other operator: handle by Lite-Code's function (_OP__Add__, etc.)
+
+### Special Override
+* try ~ except
+* lua's len (rawlen?)
+
+### interact with obj
+* Full-Code are can't interact with lua object.
+* Lite-Code can interact with lua object.
+
+### define
+
+### module support
+
+### Special Function + Value
+
+### Algoritm
+* C3 Mro
+* `*args` and `**kwargs`
+* assign tuple
+* import
+* current dir (shell)
+* yield (function as coroutine, helper are needed.)
+
+### OP Function(a, b)
+```
+def _OP__Add__(a, b):
+  assert(is_pyobj(x) and is_pyobj(y)
+  return (safe_call(a.__add__, b) or safe_call_(b.__radd__, a))[1]
+```
+* in debug mode: check the type.
+
+### Hooking
+* os.run
+* os.loadAPI
+* fs.open (for pyc)
+
+### Extension
+* X (Lite-Code)
+* py (Full-Code)
+* pyc (Full-Code's Translated Lua Code)
+
+# (Out-dated)
 ## Work with
 * Module
 * Num (int, float)
