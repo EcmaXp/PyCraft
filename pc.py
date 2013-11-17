@@ -206,6 +206,8 @@ class PythonBlockEnvManger(PythonDefineManager):
     pass
 
 class BlockBasedNodeVisitor(ast.NodeVisitor):
+    # TODO: detect missed value detect! by AST Parser or Lua's Metatable!
+
     def __init__(self):
         self.reset()
 
@@ -221,8 +223,8 @@ class BlockBasedNodeVisitor(ast.NodeVisitor):
         return self.blocks[-1]
 
     @contextlib.contextmanager
-    def block(self):
-        block_env = self.new_blockenv()
+    def block(self, **extra):
+        block_env = self.new_blockenv(**extra)
         self.enter_block(block_env)
         self.blocks.append(block_env)
 
@@ -252,7 +254,7 @@ class BlockBasedNodeVisitor(ast.NodeVisitor):
         except IsControlFlow:
             pass
 
-    def not_support_error(self, obj, action):
+    def not_support_error(self, obj, action="AST"):
         raise TypeError("%s %r are not supported by %s" % (action, obj, type(self).__name__))
 
 class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
@@ -283,9 +285,12 @@ class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
         self.not_support_error(node, action="work with")
 
 class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
-    def new_blockenv(self, **extra):
-        extra.update(vtemp=0)
-        return PythonBlockEnvManger(**extra)
+    def new_blockenv(self, *, scope=False, first=False, **extra):
+        if not scope and not first:
+            return self.current_block
+        else:
+            extra.update(vtemp=0)
+            return PythonBlockEnvManger(**extra)
 
     def visit(self, node):
         if not getattr(node, "translated", False):
@@ -350,14 +355,14 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 
     def visit_Dict(self, node):
         node = self.rvisit(node)
-        return self.make_literal(node, fname=type(node.elts))
+        return self.make_literal(node, fname=dict)
 
     def visit_Set(self, node):
         node = self.rvisit(node)
         return self.make_literal(node, fname=type(node.elts))
 
     def visit_UnaryOp(self, node):
-        return self.make_op(node.operand, node.op)
+        return self.make_op(node.op, node.operand)
 
     def visit_BinOp(self, node):
         return self.make_op(node.op, node.left, node.right)
@@ -365,16 +370,16 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
     def visit_BoolOp(self, node):
         return self.make_op(node.op, *node.values)
 
-##    def visit_Call(self, node):
-##        with self.noblock():
-##            func = self.visit(node.func)
-##            args = ", ".join(map(self.visit, node.args))
-##
-##            assert not node.keywords
-##            assert node.starargs is None
-##            assert node.kwargs is None
-##
-##            return "%s(%s)" % (func, args)
+    def visit_Call(self, node):
+        with self.noblock():
+            func = self.visit(node.func)
+            args = ", ".join(map(self.visit, node.args))
+
+            assert not node.keywords
+            assert node.starargs is None
+            assert node.kwargs is None
+
+            return "%s(%s)" % (func, args)
 
     def visit_Compare(self, node):
         ret = self.visit(node.left)
@@ -401,7 +406,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
     def visit_AugAssign(self, node):
         return Assign(
             targets=[self.rvisit(node.target)],
-            value=self.make_op(node, node.target, node.op, node.value),
+            value=self.make_op(node, self.make_op(node.op, node.target, node.value)),
         )
 
     def visit_Assign(self, node):
@@ -447,33 +452,30 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
                     else:
                         subvalue = self.make_static_op("Next", vtemp)
 
-                    ret.append(AugAssign(
-                        vcount,
-                    ))
+##                    ret.append(AugAssign(
+##                        vcount,
+##                    ))
                     ret.append(nest(subtarget, subvalue))
 
                 for idx, subtarget in enumerate(target.elts):
                     nest2(idx, subtarget)
 
-                make_static_op()
+                #make_static_op()
 
                 fname = "_ERR__%s%s__" % ( # _OP__AssignTuple__
                     type(node).__name__,
                     type(target).__name__,
                 )
 
-                ret.append(self.make_call(fname, vname, Num(n=len(target))))
+                vname = Name("?", Load())
+                ret.append(self.make_call(fname, vname, Num(n=len(target.elts))))
                 return ret
             elif isinstance(target, Name) or isinstance(target, Attribute):
-                return [Assign([target], value)]
+                return Assign([target], value)
             elif isinstance(target, Subscript):
-                return [self.make_op(target, target.value, target.slice, value)]
+                return self.make_op(target, target.value, target.slice, value)
 
-        node.value = self.visit(node.value)
         return nest(node.targets[0], node.value)
-
-    def visit_Assert(self, node):
-        return self.make_op(node, node.test, node.msg)
 
     def visit_Delete(self, node):
         return self.visit(Assign(node.targets, Name("lua.nil", Load()))) # FIXME
@@ -490,7 +492,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             value = Str(alias.name)
 
             ret.append(self.visit(Assign(
-                Name(target, Store()),
+                [Name(target, Store())],
                 self.make_call("__import__", value),
             )))
             # TODO: from some import *, or as
@@ -514,20 +516,43 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 
         return node
 
+    def visit_If(self, node):
+        node.test = self.make_static_op("If", node.test)
+        self.rvisit(node)
+
+        return node
+
     def visit_IfExp(self, node):
         return self.visit_If(node)
 
     def visit_For(self, node):
-        vtemp = self.get_tvar()
+        vtemp = Name(self.get_tvar(), Load())
         node_target = node.target
         node.target = vtemp
         node.iter = self.make_static_op(
-            "Iter",
+            "Iter_For",
             node.iter,
         )
 
-        node.body.insert(0, Assign(node_target, vtemp))
-        node.body = self.visit(node.body)
+        node.body.insert(0, Assign([node_target], vtemp))
+
+        body = []
+        for line in node.body:
+            line = self.visit(line)
+            print(repr(line))
+            if isinstance(line, list):
+                body.extend(line)
+            else:
+                body.append(line)
+        node.body = body
+        return node
+
+    def visit_For(self, node):
+        node.iter = self.make_op(
+            node,
+            node.iter,
+        )
+
         return node
 
 class LiteLuaGenerator(BlockBasedCodeGenerator):
@@ -544,8 +569,11 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         Lua_None,
     }
 
-    def new_blockenv(self, **extra):
-        return PythonBlockEnvManger()
+    def new_blockenv(self, *, scope=False, first=False, **extra):
+        if not scope and not first:
+            return self.current_block
+        else:
+            return PythonBlockEnvManger(**extra)
 
     def generic_visit(self, node):
         self.not_support_error(node, action="work with")
@@ -655,17 +683,17 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_BoolOp(self, node):
         with self.noblock():
-            left = self.visit(node.left)
-            right = self.visit(node.right)
+            values = list(map(self.visit, node.values))
             op = {
                 And : "and",
                 Or : "or",
             }[type(node.op)]
 
-            return "%s %s %s" % (left, op, right)
+            ops = " %s " % op
+            return ops.join(values)
 
     def visit_Compare(self, node):
-        check_const = lambda x: isinstance(x, Name) and x.id in self._Lua_Const
+        check_const = lambda x: isinstance(x, Name) and x.id in self.Lua_Const
         with self.noblock():
             assert len(node.ops) == 1
             assert len(node.comparators) == 1
@@ -708,11 +736,21 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             func = self.visit(node.func)
             args = list(map(self.visit, node.args))
 
+            if func == "LUA_CODE":
+                assert len(node.args) == 1
+                assert isinstance(node.args[0], Str)
+                return node.args[0].s
+
             assert not node.keywords
             assert node.kwargs is None
 
             if node.starargs:
-                args.append("unpack(%s)" % (self.visit(node.starargs)))
+                block = self.current_block
+                vararg = getattr(block, "vararg", None)
+                if isinstance(node.starargs, Name) and node.starargs.id == vararg:
+                    args.append("...")
+                else:
+                    args.append("unpack(%s)" % (self.visit(node.starargs)))
 
             args = ", ".join(args)
             return "%s(%s)" % (func, args)
@@ -785,9 +823,13 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         with self.noblock():
             assert len(node.targets) == 1, node.targets
             rawtarget = node.targets[0]
-            target = self.visit(rawtarget)
+            if isinstance(rawtarget, Tuple):
+                target = ", ".join(map(self.visit, rawtarget.elts))
+            else:
+                target = self.visit(rawtarget)
             value = self.visit(node.value)
 
+        define_type = ""
         name, pure = self._get_Name(rawtarget)
         if name is not None and pure:
             block = self.current_block
@@ -804,9 +846,6 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             if node.msg is not None:
                 args.append(node.msg)
 
-
-            args = list(map(self.visit, args))
-
             return self.visit(Call(
                 func = Name(type(node).__name__.lower(), Load()),
                 args = args,
@@ -818,7 +857,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_Delete(self, node):
         for target in node.targets:
             with self.hasblock():
-                assignAST = Assign(target, Name(self.Lua_None, Load()))
+                assignAST = Assign([target], Name(self.Lua_None, Load()))
                 self.visit_Assign(assignAST)
 
     def visit_Pass(self, node):
@@ -894,7 +933,23 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         print = self.print
 
         with self.noblock():
-            target = self.visit(node.target)
+            if isinstance(node.target, Tuple):
+                block = self.current_block
+                targets = []
+                for subnode in node.target.elts:
+                    name, _ = self._get_Name(subnode)
+                    if block.define_short(name):
+                        targets.append(name)
+
+                if targets:
+                    print(block.default_defined_type, ", ".join(targets))
+
+                target =", ".join(map(self.visit, node.target.elts))
+            elif isinstance(node.target, Name):
+                target = self.visit(node.target)
+            else:
+                self.not_support_error(node.target)
+
             iter = self.visit(node.iter)
 
         print("for", target, "in", iter, "do")
@@ -942,11 +997,13 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         fargs = ", ".join(fargs)
         print("%sfunction %s(%s)" % (define_type, fname, fargs))
-        with self.block():
+        with self.block(scope=True):
             block = self.current_block
+
             if vararg:
                 block.local_define(vararg)
                 print("local %s = {...}" % (vararg,))
+                block.vararg = vararg
 
             for subnode in node.body:
                 with self.hasblock():
@@ -972,6 +1029,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.args.kwargannotation
         assert not node.args.defaults
         assert not node.args.kw_defaults
+
+        # TODO: don't use unpack in here? (*args)
 
         class LambdaVarargTransfomer(ast.NodeTransformer):
             def visit_Name(self, node):
@@ -1034,7 +1093,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
         print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
-        with self.block():
+        with self.block(scope=True):
             print("setfenv(1, setmetatable({}, {_G=_G, __index=_G}))")
             if bases:
                 print("(function(o,c,k,v)", end=" ")
@@ -1042,7 +1101,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 print("for k,v in pairs(c) do", end=" ")
                 print("o[k]=v", end=" ")
                 print("end end end)(getfenv())")
-            print("__name__", name)
+            print("__name__", "=", repr(name))
 
             block = self.current_block
             block.default_defined = block.global_defined
@@ -1085,9 +1144,15 @@ def lua_full_compile(code, mode=_DEFAULT_COMPILE_MODE):
     return lua_compile(code, CTYPE_FULL, mode=mode)
 
 def main():
+    with open("py_API.py") as fp:
+        code = fp.read()
+        print(lua_lite_compile(code))
+        return
+
     print(lua_lite_compile("""\
-t = 1
-t += 1
+class t:
+    def _test(self):
+        print(self.__tes)
 """), end="")
 
 if __name__ == '__main__':
