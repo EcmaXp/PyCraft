@@ -1,7 +1,7 @@
 
-### THE HACK
-def LUA_CODE(code): return True
-if LUA_CODE("false"): exec("import pc; pc.main(); exit()")
+### THE HACK FOR RUN py-API.py in pyscripts.
+if pyscripter:
+    exec("import pc; pc.main(); exit()")
 ### END HACK
 
 global lua

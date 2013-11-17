@@ -1156,7 +1156,7 @@ def execute_lite(filename, fromfile=None):
         if filename not in filetable:
             filenotable = {}
             filetable[filename] = filenotable
-            lastline = None
+            lastlineno = None
 
             with open(filename, 'r') as fp:
                 for no, line in enumerate(fp, 1):
@@ -1165,15 +1165,23 @@ def execute_lite(filename, fromfile=None):
                         a, b, c = line.rpartition("-- [LINE ")
                         d, e, f = c.partition("]")
                         assert a and b and e and not f
-                        lastline = int(d)
+                        lastlineno = int(d)
 
-                    filenotable[no] = lastline
+                    filenotable[no] = lastlineno, line
 
-        return filetable[filename][lineno]
+        return filetable[filename][lineno][0]
 
+    def get_line(filename, lineno):
+        get_lineno(filename, lineno)
+        return filetable[filename][lineno][1]
+
+    unkcount = 0
     def parse_tb(line):
+        nonlocal unkcount
+
         trace, sep, detail = line.partition(": ")
-        assert(sep)
+        assert sep
+
         if ":" in trace:
             tracename, sep, lineno = trace.partition(":")
             lineno = int(lineno)
@@ -1183,6 +1191,7 @@ def execute_lite(filename, fromfile=None):
                 if realno:
                     fmt = "  File \"%s\", line %i, %s"
                     print(fmt % (fromfile, realno, detail))
+                    print("   ", get_line(fromfile, realno).strip())
                     return
 
             fmt = "  File %r, line %i, %s"
@@ -1207,7 +1216,10 @@ def execute_lite(filename, fromfile=None):
     tbline = None
     lastline = None
     stderr = stderr.rstrip()
+
     if stderr:
+        tbs = []
+
         for line in stderr.splitlines():
             if lastline is None:
                 lastline = line
@@ -1217,11 +1229,15 @@ def execute_lite(filename, fromfile=None):
                 print("Traceback (most recent call last):")
                 continue
             elif line.startswith("\t"):
-                parse_tb(line.lstrip("\t"))
+                tbs.append(line.lstrip("\t"))
                 continue
 
             lastline = line
             print(line)
+            print("ERR")
+
+        for tb in reversed(tbs):
+            parse_tb(tb)
 
         if tbline:
             print("Exception: " + tbline.rpartition(": ")[2], "?")

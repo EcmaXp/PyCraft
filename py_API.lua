@@ -1,7 +1,4 @@
-local function LUA_CODE(code)
-  return True; -- [LINE 3]
-end;
-if false then
+if pyscripter then
   exec('import pc; pc.main(); exit()'); -- [LINE 4]
 end;
 lua = {};
