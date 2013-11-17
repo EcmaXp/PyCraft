@@ -1200,13 +1200,13 @@ def execute_lite(filename, fromfile=None):
     process = subprocess.Popen(["tools/lua/lua5.1.exe", filename], stdout=PIPE, stderr=PIPE)
     stdout, stderr = map(bytes.decode, process.communicate())
 
-    stdout = stdout.strip()
+    stdout = stdout.rstrip()
     if stdout:
         print(stdout)
 
     tbline = None
     lastline = None
-    stderr = stderr.strip()
+    stderr = stderr.rstrip()
     if stderr:
         for line in stderr.splitlines():
             if lastline is None:
@@ -1214,7 +1214,6 @@ def execute_lite(filename, fromfile=None):
                 continue
             if line == "stack traceback:":
                 tbline = lastline
-                print()
                 print("Traceback (most recent call last):")
                 continue
             elif line.startswith("\t"):
@@ -1225,7 +1224,7 @@ def execute_lite(filename, fromfile=None):
             print(line)
 
         if tbline:
-            print("Exception: " + tbline.rpartition(": ")[2])
+            print("Exception: " + tbline.rpartition(": ")[2], "?")
 
 def compile_and_run_py_API():
     filename_api = "py_API"
@@ -1236,7 +1235,7 @@ def compile_and_run_py_API():
         code = fp.read()
 
     compiled = lua_lite_compile(code)
-    print("Success compiled with size:", len(compiled))
+    #print("Success compiled with size:", len(compiled))
 
     with open(filename_api_lua, "w") as fp:
         fp.write(compiled)
@@ -1251,10 +1250,9 @@ def compile_and_run_py_API():
 def main():
     compile_and_run_py_API()
 
+    return
     print(lua_lite_compile("""\
-class t:
-    def _test(self):
-        print(self.__tes)
+# Place code in here?
 """), end="")
 
 if __name__ == '__main__':
