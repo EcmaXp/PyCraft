@@ -15,8 +15,8 @@ def lua_len(obj):
 
 def lua_concat(*args):
     r = ""
-    for _, str in pairs(args):
-        r = LUA_CODE("r..str")
+    for _, x in pairs(args):
+        r = LUA_CODE("r..x")
 
     return r
 
@@ -52,11 +52,66 @@ def nonrequire_args(*args):
 
 def metacall(obj, fname, *args):
     mtable = getmetatable(obj)
-    value = rawget(mtable, fname)
-    return value(obj, *args)
+    func = rawget(mtable, fname)
+    if func is nil:
+        error(lua.concat("Method ", fname, " are not found!"), 1)
+    else:
+        return func(obj, *args)
 
+def safemetacall(obj, fname, *args):
+    mtable = getmetatable(obj)
+    func = rawget(mtable, fname)
+    if func is nil:
+        return false, nil
+    else:
+        return true, func(obj, *args)
+
+def is_float(num):
+    if lua.type(num) != "number":
+        error("This is not number", 2)
+
+    return math.floor(num) != num
+
+def is_pyobj(obj):
+    mtable = lua.getmetatable(obj)
+    return mtable and rawget(mtable, TAG) == TAG or false
+
+def to_pyobj(obj):
+    if is_pyobj(obj):
+        return obj
+    else:
+        return LuaObject(obj)
+
+##        objtype = lua.type(obj)
+##        if objtype == "number":
+##            if not is_float(obj):
+##                return int(obj)
+##            else:
+##                return float(obj)
+##        elif objtype == "string":
+##            return str(obj)
+##        else:
+##            return LuaObject(obj)
+
+def to_luaobj(obj):
+    if is_pyobj(obj):
+        return metacall(obj, "__lua__")
+    else:
+        return obj
+
+def require_pyobj(*objs):
+    for idx, obj in pairs(objs):
+        if not is_pyobj(obj):
+            error("Require python object.")
+
+    return true
+
+global repr
 def repr(obj):
-    return metacall(to_pyobj(obj), "__repr__")
+    if is_pyobj(obj):
+        return metacall(to_pyobj(obj), "__repr__")
+    else:
+        return lua.concat("@(", tostring(obj), ")")
 
 global object
 class object():
@@ -73,7 +128,7 @@ class object():
         return metacall(self, "__setattr__", key, value)
 
     def __tostring(self):
-        return concat("@", to_luaobj(repr(self)))
+        return lua.concat("#(", to_luaobj(repr(self)), ")")
 
     def __new__(cls, *args):
         global OBJ_ID
@@ -98,7 +153,7 @@ class object():
             else:
                 return value
 
-        error("?")
+        error(lua.concat("Not found '", key, "' attribute."))
 
     def __setattr__(self, key, value):
         rawset(self, key, value)
@@ -109,6 +164,7 @@ class object():
 
 rawset(object, TAG, TAG)
 
+global type
 class type(object):
     def __call__(cls, *args):
         return cls.__new__(cls, *args)
@@ -134,62 +190,84 @@ setmetatable(type, ptype)
 setmetatable(ptype, ptype)
 
 class LuaObject(object, metatable=type):
+    # This is hidden, and core of calc.
+    LuaObject = true
+    # isinstance are need.
+
     def __init__(self, obj):
-        self.value = obj
+        mtable = getmetatable(obj)
+        if mtable and rawget(mtable, "LuaObject"):
+            obj = to_luaobj(obj)
+
+        object.__setattr__(self, "value", obj)
+
+    def __str__(self):
+        return str(metacall(self, "__repr__"))
 
     def __repr__(self):
-        return tostring(self.value)
+        return str(tostring(self.value))
 
     def __lua__(self):
         return self.value
 
+class LuaValueOnlySequance(LuaObject, metatable=type):
+    def __init__(self, obj):
+        self.check_type(obj)
+        object.__setattr__(self, "value", obj)
+
+    def check_type(self, obj):
+        if obj[lua.len(obj)] is nil: pass
+        elif obj[1] is nil: pass
+        elif obj[0] is not nil: pass
+        else:
+            return true
+
+        return false
+
+global list
+class list(LuaValueOnlySequance, metatable=type):
+    def __repr__(self):
+        ret = []
+        idx = 1
+
+        sep = ""
+        ret[idx] = "["; idx += 1
+        for k,v in pairs(self.value):
+            ret[idx] = sep; idx += 1
+            ret[idx] = to_luaobj(repr(v)); idx += 1
+            sep = ", "
+
+        ret[idx] = "]"; idx += 1
+
+        return table.concat(ret)
+
+    def __setattr__(self, key, value):
+        error("Not allowed")
+
+global str
 class str(LuaObject, metatable=type):
+    def __init__(self, value):
+        if is_pyobj(value):
+            value = metacall(value, "__str__")
+            value = to_luaobj(value)
+
+        self.value = value
+
     def __str__(self):
         return self
 
     def __repr__(self):
-        return lua.concat("'", self.value, "'")
+        return str(lua.concat("'", self.value, "'"))
 
+global int
 class int(LuaObject, metatable=type):
+    def __add__(self, other):
+        # TODO: We must use pattern for something.
+        return int(self.value + other.value)
+
+global dict
+class dict(LuaObject, metatable=type):
     pass
-
-def is_float(num):
-    if lua.type(num) != "number":
-        error("This is not number", 2)
-
-    return math.floor(num) != num
-
-def is_pyobj(obj):
-    mtable = lua.getmetatable(obj)
-    return mtable and rawget(mtable, TAG) == TAG
-
-def to_pyobj(obj):
-    if is_pyobj(obj):
-        return obj
-    else:
-        objtype = lua.type(obj)
-        if objtype == "number":
-            if not is_float(obj):
-                return int(obj)
-            else:
-                return float(obj)
-        elif objtype == "string":
-            return str(obj)
-        else:
-            return LuaObject(obj)
-
-def to_luaobj(obj):
-    if is_pyobj(obj):
-        return obj.__lua__()
-    else:
-        return obj
-
-def require_pyobj(*objs):
-    for idx, obj in pairs(objs):
-        if not is_pyobj(obj):
-            error("Require python object.")
-
-    return false
 
 ##def isinstance(obj, targets):
 ##  require_pyobj(obj)
@@ -201,10 +279,7 @@ def require_pyobj(*objs):
 ##
 ##  return false
 
-def repr(obj):
-    obj = to_pyobj(obj)
-    return metacall(obj, "__repr__")
-
+global print
 def print(*args):
     write = lua.io.write
     sep = " "
@@ -215,21 +290,38 @@ def print(*args):
 
     write("\n")
 
-def _OP__Add__(a, b):
-    assert require_pyobj(a, b)
+def OP_Call2(op, ax, bx):
+    ax = lua.concat("__", ax, "__")
+    if bx is not nil:
+        bx = lua.concat("__", bx, "__")
 
-    ret = metacall(a, "__add__", b)
-    if ret != NotImplemented:
-        return ret
+    def func(a, b):
+        assert require_pyobj(a, b)
 
-    ret = b.__radd__(a)
-    if ret != NotImplemented:
-        return ret
+        have, ret = unpack(safemetacall(a, ax, b))
+        lua.print(have, ret)
+        if have and ret != NotImplemented:
+            return ret
 
-    ret = b.__add__(a)
-    if ret != NotImplemented:
-        return ret
+        if bx is not nil:
+            have, ret = unpack(safemetacall(a, bx, b))
+            if have and ret != NotImplemented:
+                return ret
 
-    fail_op()
+        have, ret = unpack(safemetacall(b, ax, a))
+        if have and ret != NotImplemented:
+            return ret
 
-print("hello")
+        error(lua.concat("Can't do '", op, "'"))
+
+    return func
+
+global _OP__Add__, _OP__Sub__
+_OP__Add__ = OP_Call2("+", "add", "radd")
+_OP__Sub__ = OP_Call2("-", "sub", "rsub")
+
+x = list({int(1), int(2), int(3)})
+y = int(5)
+z = int(7)
+print(x)
+print(_OP__Add__(y, z))

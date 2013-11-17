@@ -595,7 +595,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_Module(self, node):
         self.reset()
-        self.print("local _M = getfenv();")
+        self.print("local _M = getfenv();") # TODO: how to change _M to ohter?
+        block = self.current_block
+        # block.default_defined = block.global_defined
+        # ??
         self.unroll(node.body)
 
         return self.fp.getvalue()
@@ -665,7 +668,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_UnaryOp(self, node):
         with self.noblock():
             value = self.visit(node.operand)
-            op = {UAdd:"", USub:"-", Not:"not", Invert:"~"}[type(node.op)]
+            op = {UAdd:"", USub:"-", Not:"not ", Invert:"~"}[type(node.op)]
 
             if not op:
                 return value
@@ -992,12 +995,12 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_FunctionDef(self, node):
         print = self.print
-        fname = node.name
-        fargs = list(map(self.visit, node.args.args))
+        name = node.name
+        args = list(map(self.visit, node.args.args))
 
         vararg = node.args.vararg
         if vararg:
-            fargs.append("...")
+            args.append("...")
 
         #assert not node.args.vararg
         assert not node.args.kwonlyargs
@@ -1009,12 +1012,16 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.returns
 
         block = self.current_block
-        define_type = block.define_short(fname)
+        define_type = block.define_short(name)
 
-        fargs = ", ".join(fargs)
-        print("%sfunction %s(%s)" % (define_type, fname, fargs))
+        rawargs = args
+        args = ", ".join(args)
+        print("%sfunction %s(%s)" % (define_type, name, args))
         with self.block(scope=True):
             block = self.current_block
+            for arg in rawargs:
+                if arg != "...":
+                    block.define_short(arg)
 
             if vararg:
                 block.local_define(vararg)
