@@ -1,3 +1,9 @@
+
+### THE HACK
+def LUA_CODE(code): return True
+if LUA_CODE("false"): exec("import pc; pc.main(); exit()")
+### END HACK
+
 global lua
 
 lua = {}
@@ -20,6 +26,49 @@ def lua_concat(a, b, *args):
 
 lua.len = lua_len
 lua.concat = lua_concat
+
+##def tcopy(t):
+##    t2 = {}
+##    for k, v in pairs(t):
+##        t2[k] = v
+##
+##    return t2
+##
+##def textend(t1, t2):
+##    for k, v in pairs(t2):
+##        t1[k] = v
+##
+##    return t1
+##
+##def tsub(a, b):
+##    return textend(tcopy(a), b)
+
+def is_float(num):
+    if lua.type(num) != "number":
+        error("This is not number", 2)
+
+    return math.floor(num) != num
+
+def error(msg, level):
+    if level is nil:
+        level = 1
+
+    level += 1
+    lua.error(concat(TAG, " ", msg), level)
+
+def require_args(*args):
+    for key, value in pairs(args):
+        if value is nil:
+            error("SystemError: Not Enough Item")
+
+    return True
+
+def nonrequire_args(*args):
+    for key, value in pairs(args):
+        if value is not nil:
+            error("SystemError: Not Enough Item")
+
+    return True
 
 def metacall(obj, fname, *args):
     mtable = getmetatable(obj)
@@ -106,21 +155,21 @@ setmetatable(object, type)
 setmetatable(type, ptype)
 setmetatable(ptype, ptype)
 
-class LuaObject(object):
+class LuaObject(object, metatable=type):
     def __init__(self, obj):
         self.value = obj
 
     def __repr__(self):
         return tostring(self.value)
 
-class str(LuaObject):
+class str(LuaObject, metatable=type):
     def __str__(self):
         return self
 
     def __repr__(self):
         return lua.concat("'", self.value, "'")
 
-class int(LuaObject):
+class int(LuaObject, metatable=type):
     pass
 
 def is_float(num):
@@ -202,4 +251,5 @@ def _OP__Add__(a, b):
 
     fail_op()
 
+lua.print("hello")
 print("hello")

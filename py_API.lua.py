@@ -287,5 +287,4 @@ local function _OP__Add__(a, b)
   end;
   fail_op(); -- [LINE 252]
 end;
-lua.print('hello'); -- [LINE 254]
-print('hello'); -- [LINE 255]
+print('hello'); -- [LINE 254]
