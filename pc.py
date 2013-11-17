@@ -405,10 +405,10 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         return self.rvisit(Tuple(list(map(self.rvisit, node.dims))))
 
     def visit_AugAssign(self, node):
-        return Assign(
+        return ast.copy_location(Assign(
             targets=[self.rvisit(node.target)],
             value=self.make_op(node, self.make_op(node.op, node.target, node.value)),
-        )
+        ), node)
 
     def visit_Assign(self, node):
         if len(node.targets) > 1:
@@ -472,7 +472,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
                 ret.append(self.make_call(fname, vname, Num(n=len(target.elts))))
                 return ret
             elif isinstance(target, Name) or isinstance(target, Attribute):
-                return Assign([target], value)
+                return ast.copy_location(Assign([target], value), node)
             elif isinstance(target, Subscript):
                 return self.make_op(target, target.value, target.slice, value)
 
@@ -588,16 +588,21 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         print = self.print
         with self.hasblock():
             self.print(self.visit(subnode), end=";")
-            print(" -- [LINE %i]" % subnode.lineno)
+            self.print_lineinfo(subnode)
+
+    def print_lineinfo(self, subnode):
+        self.print(" -- [LINE %i]" % subnode.lineno)
 
     def visit_Module(self, node):
         self.reset()
+        self.print("local _M = getfenv();")
         self.unroll(node.body)
 
         return self.fp.getvalue()
 
     def visit_Interactive(self, node):
         self.reset()
+        self.print("local _M = getfenv();")
         self.unroll(node.body, mode=self.hasblock)
 
         return self.fp.getvalue()
@@ -606,6 +611,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         self.reset()
         print = self.print
 
+        # NO WAIT: YOU MUST SET _M in your environ.
         # FIXME? unroll are need for single body?
         with self.noblock():
             print(self.visit(node.body))
@@ -808,10 +814,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_AugAssign(self, node):
         with self.noblock():
-            AssignAST = ast.Assign(
+            AssignAST = ast.copy_location(ast.Assign(
                 targets=[node.target],
                 value = ast.BinOp(node.target, node.op, node.value),
-            )
+            ), node)
 
             name, _ = self._get_Name(node.target)
             block = self.current_block
@@ -840,7 +846,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             block = self.current_block
             define_type = block.define_short(name)
 
-        self.print("%s%s = %s" % (define_type, target, value), end=";\n")
+        self.print("%s%s = %s" % (define_type, target, value), end=";")
+        self.print_lineinfo(node)
 
         raise IsControlFlow
 
@@ -862,7 +869,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_Delete(self, node):
         for target in node.targets:
             with self.hasblock():
-                assignAST = Assign([target], Name(self.Lua_None, Load()))
+                assignAST = ast.copy_location(
+                    Assign([target], Name(self.Lua_None, Load())),
+                    node,
+                )
                 self.visit_Assign(assignAST)
 
     def visit_Pass(self, node):
@@ -875,7 +885,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_If(self, node):
         print = self.print
 
-        print("if", self.visit(node.test), "then")
+        print("if", self.visit(node.test), "then", end="")
+        self.print_lineinfo(node)
+
         with self.block():
             self.unroll(node.body)
 
@@ -952,7 +964,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
             iter = self.visit(node.iter)
 
-        print("for", target, "in", iter, "do")
+        print("for", target, "in", iter, "do", end="")
+        self.print_lineinfo(node)
+
         self._visit_Loop(node)
 
     def visit_While(self, node):
@@ -961,7 +975,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         with self.noblock():
             test = self.visit(node.test)
 
-        print("while", test, "do")
+        print("while", test, "do", end="")
+        self.print_lineinfo(node)
+
         self._visit_Loop(node)
 
     # -- Function and class definitions -- #
@@ -1092,7 +1108,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
         print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
         with self.block(scope=True):
-            print("setfenv(1, setmetatable({}, {_G=_G, __index=_G}));")
+            print("setfenv(1, setmetatable({}, {_G=_G,__index=_G}));")
             if bases:
                 print("(function(o,c,k,v)")
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
@@ -1105,7 +1121,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             block.default_defined = block.global_defined
             # TODO: change type_table for assign out of this class.
 
-            self.unroll(node.body)
+            for subnode in node.body:
+                self.print_node(subnode)
+                if isinstance(subnode, FunctionDef):
+                    print("setfenv(%s, _G)" % subnode.name)
 
             print("return getfenv()", end=";\n")
         print("end)(getfenv())", end=";\n")
@@ -1176,11 +1195,15 @@ def execute_lite(filename, fromfile=None):
         return filetable[filename][lineno][1]
 
     unkcount = 0
-    def parse_tb(line):
+    def parse_tb(line, ignore_realno=False):
         nonlocal unkcount
 
         trace, sep, detail = line.partition(": ")
-        assert sep
+
+        if not detail:
+            detail_help = ""
+        else:
+            detail_help = ", " + detail
 
         if ":" in trace:
             tracename, sep, lineno = trace.partition(":")
@@ -1188,18 +1211,18 @@ def execute_lite(filename, fromfile=None):
 
             if tracename == filename:
                 realno = get_lineno(tracename, lineno)
-                if realno:
-                    fmt = "  File \"%s\", line %i, %s"
-                    print(fmt % (fromfile, realno, detail))
+                if realno and not ignore_realno:
+                    fmt = "  File \"%s\", line %i%s"
+                    print(fmt % (fromfile, realno, detail_help))
                     print("   ", get_line(fromfile, realno).strip())
                     return
 
-            fmt = "  File %r, line %i, %s"
-            print(fmt % (trace, lineno, detail))
+            fmt = "  File %r, line %i%s"
+            print(fmt % (trace, lineno, detail_help))
             return
         else:
-            fmt = "  File %r, %s"
-            print(fmt % (trace, detail))
+            fmt = "  File %r%s"
+            print(fmt % (trace, detail_help))
             return
 
     import subprocess
@@ -1214,33 +1237,44 @@ def execute_lite(filename, fromfile=None):
         print(stdout)
 
     tbline = None
-    lastline = None
     stderr = stderr.rstrip()
 
     if stderr:
         tbs = []
 
         for line in stderr.splitlines():
-            if lastline is None:
-                lastline = line
+            if tbline is None:
+                tbline = line
                 continue
             if line == "stack traceback:":
-                tbline = lastline
                 print("Traceback (most recent call last):")
                 continue
             elif line.startswith("\t"):
                 tbs.append(line.lstrip("\t"))
                 continue
 
-            lastline = line
             print(line)
-            print("ERR")
 
         for tb in reversed(tbs):
             parse_tb(tb)
 
         if tbline:
-            print("Exception: " + tbline.rpartition(": ")[2], "?")
+            if tbs:
+                tb = tbline.partition(": ")[2]
+                tb, sep, detail = tb.partition(": ")
+                parse_tb(tb)
+                print("Exception: " + detail)
+            else:
+                tb = tbline.partition(": ")[2]
+                tb, sep, detail = tb.partition(": ")
+                assert sep
+                parse_tb(tb, ignore_realno=True)
+                filename, sep, lineno = tb.partition(":")
+                lineno = int(lineno)
+                assert sep
+
+                print("   ", get_line(filename, lineno))
+                print("SyntexError: " + detail)
 
 def compile_and_run_py_API():
     filename_api = "py_API"

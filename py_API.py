@@ -1,8 +1,5 @@
-
+if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
-if pyscripter:
-    exec("import pc; pc.main(); exit()")
-### END HACK
 
 global lua
 
@@ -16,32 +13,15 @@ OBJ_ID = 0
 def lua_len(obj):
     return LUA_CODE("#obj")
 
-def lua_concat(a, b, *args):
-    r = LUA_CODE("a..b")
-    if len(args) > 0:
-        for _, arg in pairs(args):
-            r = LUA_CODE("r..arg")
+def lua_concat(*args):
+    r = ""
+    for _, str in pairs(args):
+        r = LUA_CODE("r..str")
 
     return r
 
 lua.len = lua_len
 lua.concat = lua_concat
-
-##def tcopy(t):
-##    t2 = {}
-##    for k, v in pairs(t):
-##        t2[k] = v
-##
-##    return t2
-##
-##def textend(t1, t2):
-##    for k, v in pairs(t2):
-##        t1[k] = v
-##
-##    return t1
-##
-##def tsub(a, b):
-##    return textend(tcopy(a), b)
 
 def is_float(num):
     if lua.type(num) != "number":
@@ -54,7 +34,7 @@ def error(msg, level):
         level = 1
 
     level += 1
-    lua.error(concat(TAG, " ", msg), level)
+    lua.error(lua.concat(TAG, " ", msg), level)
 
 def require_args(*args):
     for key, value in pairs(args):
@@ -73,12 +53,10 @@ def nonrequire_args(*args):
 def metacall(obj, fname, *args):
     mtable = getmetatable(obj)
     value = rawget(mtable, fname)
-    status, result = pcall(value, obj, *args)
+    return value(obj, *args)
 
-    if not status:
-        error(result, 2)
-    else:
-        return result
+def repr(obj):
+    return metacall(to_pyobj(obj), "__repr__")
 
 global object
 class object():
@@ -88,21 +66,21 @@ class object():
     def __call(self, *args):
         return metacall(self, "__call__", *args)
 
-    def __get(self, key):
+    def __index(self, key):
         return metacall(self, "__getattribute__", key)
 
-    def __set(self, key, value):
+    def __newindex(self, key, value):
         return metacall(self, "__setattr__", key, value)
 
     def __tostring(self):
-        return concat("@", to_lua(repr(self)))
+        return concat("@", to_luaobj(repr(self)))
 
     def __new__(cls, *args):
         global OBJ_ID
         OBJ_ID += 1
 
         instance = {"__id" : OBJ_ID}
-        setmetatable(instance, cls)
+        lua.setmetatable(instance, cls)
         metacall(instance, "__init__", *args)
 
         return instance
@@ -136,7 +114,7 @@ class type(object):
         return cls.__new__(cls, *args)
 
     def __repr__(cls):
-        return str(concat("<class '", cls.__name__, "'>"))
+        return str(lua.concat("<class '", cls.__name__, "'>"))
 
     def mro(cls):
         return cls.__mro__
@@ -144,7 +122,7 @@ class type(object):
 class ptype(type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
-            require_pyobj(args[1])
+            #require_pyobj(args[1])
             return getmetatable(args[1])
         elif lua.len(args) == 3:
             pass
@@ -161,6 +139,9 @@ class LuaObject(object, metatable=type):
 
     def __repr__(self):
         return tostring(self.value)
+
+    def __lua__(self):
+        return self.value
 
 class str(LuaObject, metatable=type):
     def __str__(self):
@@ -180,7 +161,7 @@ def is_float(num):
 
 def is_pyobj(obj):
     mtable = lua.getmetatable(obj)
-    return mtable and rawget(obj, TAG) == TAG
+    return mtable and rawget(mtable, TAG) == TAG
 
 def to_pyobj(obj):
     if is_pyobj(obj):
@@ -229,7 +210,7 @@ def print(*args):
     sep = " "
 
     for _, arg in pairs(args):
-        write(to_luaobj(str(arg)))
+        write(tostring(to_luaobj(str(arg))))
         write(sep)
 
     write("\n")
@@ -251,5 +232,4 @@ def _OP__Add__(a, b):
 
     fail_op()
 
-lua.print("hello")
 print("hello")
