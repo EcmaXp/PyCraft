@@ -8,6 +8,9 @@ import weakref
 import random
 
 OBJECT_ATTRS = [
+    # MUST NOT CHANGE ORDER!
+
+    # START BASIC
     '__new__',
     '__init__',
     '__del__',
@@ -89,7 +92,17 @@ OBJECT_ATTRS = [
     '__index__',
     '__enter__',
     '__exit__',
+    # END BASIC
+
+    # START EXTRA
+    '__lua__',
+    # END EXTRA
+
+    # NEXT METHOD ARE HERE
 ]
+
+assert OBJECT_ATTRS.index("__pos__") == 72 - 1
+assert OBJECT_ATTRS[42 - 1] == '__rshift__'
 
 CTYPE_LITE = "LITE"
 CTYPE_FULL = "FULL"
@@ -890,14 +903,19 @@ def DO_SUPPORT_PCEX(cls):
                 return ""
             elif not self.enable_special:
                 pass
-            elif func == "__PC_ECMAXP_SETUP_PCEX":
+            elif func in ("__PC_ECMAXP_SETUP_PCEX", "__PC_ECMAXP_SETUP_AUTO_GLOBAL"):
                 assert len(node.args) == 1
                 assert isinstance(node.args[0], Name)
                 arg = node.args[0].id
-                if arg == self.Lua_True:
-                    self.enable_pcex = True
-                elif arg == self.Lua_False:
-                    self.enable_pcex = False
+                arg = {self.Lua_True:True, self.Lua_False:False}[arg]
+                if func == "__PC_ECMAXP_SETUP_PCEX":
+                    self.enable_pcex = arg
+                elif func == "__PC_ECMAXP_SETUP_AUTO_GLOBAL":
+                    block = self.current_block
+                    if arg:
+                        block.default_defined = block.global_defined
+                    else:
+                        block.default_defined = block.local_defined
                 else:
                     assert False
                 return ""
