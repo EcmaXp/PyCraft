@@ -1,5 +1,7 @@
 if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
+__PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
+__PC_ECMAXP_SETUP_PCEX(true) # __PCEX__ YES!
 
 global lua
 
@@ -9,6 +11,9 @@ for key, value in pairs(_G):
 
 TAG = '[PY]'
 OBJ_ID = 0
+
+__PCEX__ = "__PCEX__"
+methods = GET_METHODS()
 
 def lua_len(obj):
     return LUA_CODE("#obj")
@@ -109,7 +114,7 @@ def require_pyobj(*objs):
 global repr
 def repr(obj):
     if is_pyobj(obj):
-        return metacall(to_pyobj(obj), "__repr__")
+        return _OP__Repr__(obj)
     else:
         return lua.concat("@(", tostring(obj), ")")
 
@@ -175,7 +180,13 @@ class type(object):
     def mro(cls):
         return cls.__mro__
 
-class ptype(type):
+class builtins_type(type):
+    __name__ = "type"
+
+    def __setattr__(self, name):
+        error("Not allowed setattr for builtins type.")
+
+class ptype(builtins_type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
             #require_pyobj(args[1])
@@ -185,7 +196,7 @@ class ptype(type):
         else:
             error("Unexcepted arguments.")
 
-setmetatable(object, type)
+setmetatable(object, builtins_type)
 setmetatable(type, ptype)
 setmetatable(ptype, ptype)
 
@@ -290,37 +301,49 @@ def print(*args):
 
     write("\n")
 
-def OP_Call2(op, ax, bx):
-    ax = lua.concat("__", ax, "__")
-    if bx is not nil:
-        bx = lua.concat("__", bx, "__")
+def OP_Call(x):
+    def func(o):
+        assert require_pyobj(o)
+        return rawget(getmetatable(o), __PCEX__)[x](o)
+    return func
 
+def OP_Call2(ax, bx):
     def func(a, b):
         assert require_pyobj(a, b)
 
-        have, ret = unpack(safemetacall(a, ax, b))
-        if have and ret != NotImplemented:
-            return ret
+        am = rawget(getmetatable(a), __PCEX__)
+        bm = rawget(getmetatable(b), __PCEX__)
 
-        if bx is not nil:
-            have, ret = unpack(safemetacall(a, bx, b))
-            if have and ret != NotImplemented:
+        f = am[ax]
+        if f:
+            ret = f(a, b)
+            if ret != NotImplemented:
                 return ret
 
-        have, ret = unpack(safemetacall(b, ax, a))
-        if have and ret != NotImplemented:
-            return ret
+        f = bm[bx]
+        if f:
+            ret = f(b, a)
+            if ret != NotImplemented:
+                return ret
 
-        error(lua.concat("Can't do '", op, "'"))
+        f = bm[ax]
+        if f:
+            ret = f(b, a)
+            if ret != NotImplemented:
+                return ret
+
+        error(lua.concat("Can't do '", ax, "'"))
 
     return func
 
-global _OP__Add__, _OP__Sub__
-_OP__Add__ = OP_Call2("+", "add", "radd")
-_OP__Sub__ = OP_Call2("-", "sub", "rsub")
+global _OP__Add__, _OP__Sub__, _OP__Repr__
+_OP__Add__ = OP_Call2(_M("__add__"), _M("__radd__"))
+_OP__Sub__ = OP_Call2(_M("__sub__"), _M("__rsub__"))
+_OP__Repr__ = OP_Call(_M("__repr__"))
 
 x = list({int(1), int(2), int(3)})
 y = int(5)
 z = int(7)
 print(x)
 print(_OP__Add__(y, z))
+lua.print(list.__PCEX__[_M("__repr__")])

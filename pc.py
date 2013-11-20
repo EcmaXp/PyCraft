@@ -7,13 +7,109 @@ import contextlib
 import weakref
 import random
 
+OBJECT_ATTRS = [
+    '__new__',
+    '__init__',
+    '__del__',
+    '__repr__',
+    '__str__',
+    '__bytes__',
+    '__format__',
+    '__lt__',
+    '__le__',
+    '__eq__',
+    '__ne__',
+    '__gt__',
+    '__ge__',
+    '__hash__',
+    '__bool__',
+    '__getattr__',
+    '__getattribute__',
+    '__setattr__',
+    '__delattr__',
+    '__dir__',
+    '__get__',
+    '__set__',
+    '__delete__',
+    '__slots__',
+    '__call__',
+    '__len__',
+    '__getitem__',
+    '__setitem__',
+    '__delitem__',
+    '__iter__',
+    '__reversed__',
+    '__contains__',
+    '__add__',
+    '__sub__',
+    '__mul__',
+    '__truediv__',
+    '__floordiv__',
+    '__mod__',
+    '__divmod__',
+    '__pow__',
+    '__lshift__',
+    '__rshift__',
+    '__and__',
+    '__xor__',
+    '__or__',
+    '__radd__',
+    '__rsub__',
+    '__rmul__',
+    '__rtruediv__',
+    '__rfloordiv__',
+    '__rmod__',
+    '__rdivmod__',
+    '__rpow__',
+    '__rlshift__',
+    '__rrshift__',
+    '__rand__',
+    '__rxor__',
+    '__ror__',
+    '__iadd__',
+    '__isub__',
+    '__imul__',
+    '__itruediv__',
+    '__ifloordiv__',
+    '__imod__',
+    '__ipow__',
+    '__ilshift__',
+    '__irshift__',
+    '__iand__',
+    '__ixor__',
+    '__ior__',
+    '__neg__',
+    '__pos__',
+    '__abs__',
+    '__invert__',
+    '__complex__',
+    '__int__',
+    '__float__',
+    '__round__',
+    '__index__',
+    '__enter__',
+    '__exit__',
+]
+
 CTYPE_LITE = "LITE"
 CTYPE_FULL = "FULL"
 
 __all__ = [
     "lua_lite_compile", "lua_full_compile",
-    "print_ast", "print_ast_tree",
+    "print_ast", "print_ast_tree", "full_copy_location",
 ]
+
+class FullCopyLocation(ast.NodeVisitor):
+    def __init__(self, node):
+        self.node = node
+
+    def generic_visit(self, node):
+        node = ast.copy_location(node, self.node)
+        super().generic_visit(node)
+        return node
+
+def full_copy_location(a, b):
+    return FullCopyLocation(b).visit(a)
 
 class ASTTreePrinter(ast.NodeVisitor):
     @classmethod
@@ -405,7 +501,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         return self.rvisit(Tuple(list(map(self.rvisit, node.dims))))
 
     def visit_AugAssign(self, node):
-        return ast.copy_location(Assign(
+        return full_copy_location(Assign(
             targets=[self.rvisit(node.target)],
             value=self.make_op(node, self.make_op(node.op, node.target, node.value)),
         ), node)
@@ -472,7 +568,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
                 ret.append(self.make_call(fname, vname, Num(n=len(target.elts))))
                 return ret
             elif isinstance(target, Name) or isinstance(target, Attribute):
-                return ast.copy_location(Assign([target], value), node)
+                return full_copy_location(Assign([target], value), node)
             elif isinstance(target, Subscript):
                 return self.make_op(target, target.value, target.slice, value)
 
@@ -570,6 +666,11 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         Lua_None,
     }
 
+    def reset(self):
+        super().reset()
+        self.enable_special = False
+        self.enable_pcex = False
+
     def new_blockenv(self, *, scope=False, first=False, **extra):
         if not scope and not first:
             return self.current_block
@@ -587,8 +688,12 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def print_node(self, subnode):
         print = self.print
         with self.hasblock():
-            self.print(self.visit(subnode), end=";")
-            self.print_lineinfo(subnode)
+            line = self.visit(subnode)
+            if line: # must keep it?
+                self.print(line, end=";")
+                self.print_lineinfo(subnode)
+            else:
+                self.print_lineinfo(subnode)
 
     def print_lineinfo(self, subnode):
         self.print(" -- [LINE %i]" % subnode.lineno)
@@ -754,6 +859,55 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 assert len(node.args) == 1
                 assert isinstance(node.args[0], Str)
                 return node.args[0].s
+            elif func == "__PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD":
+                assert len(node.args) == 1
+                assert isinstance(node.args[0], Str)
+                assert node.args[0].s == "YES"
+                self.enable_special = True
+                # SETUP BASIC WORK
+                code = """\
+__PC_METHODS = GET_METHODS()
+__PC_METHODS_REV = {}
+for k, v in pairs(__PC_METHODS):
+    __PC_METHODS_REV[v] = k
+
+def DO_SUPPORT_PCEX(cls):
+    cls.__PCEX__ = nil
+
+    pcex = {}
+    for k, v in pairs(cls):
+        idx = __PC_METHODS_REV[k]
+        if idx is not nil:
+            pcex[idx] = v
+
+    cls.__PCEX__ = pcex
+    return cls
+"""
+
+                envAST = ast.parse(code.strip(), mode="exec")
+                envAST = full_copy_location(envAST, node)
+                self.unroll(envAST.body)
+                return ""
+            elif not self.enable_special:
+                pass
+            elif func == "__PC_ECMAXP_SETUP_PCEX":
+                assert len(node.args) == 1
+                assert isinstance(node.args[0], Name)
+                arg = node.args[0].id
+                if arg == self.Lua_True:
+                    self.enable_pcex = True
+                elif arg == self.Lua_False:
+                    self.enable_pcex = False
+                else:
+                    assert False
+                return ""
+            elif func == "_M": # THIS IS
+                assert len(node.args) == 1
+                assert isinstance(node.args[0], Str)
+                return repr(OBJECT_ATTRS.index(node.args[0].s) + 1)
+            elif func == "GET_METHODS":
+                assert len(node.args) == 0
+                return self.visit(List(list(map(Str, OBJECT_ATTRS)), Load()))
 
             assert not node.keywords
             assert node.kwargs is None
@@ -817,7 +971,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_AugAssign(self, node):
         with self.noblock():
-            AssignAST = ast.copy_location(ast.Assign(
+            AssignAST = full_copy_location(ast.Assign(
                 targets=[node.target],
                 value = ast.BinOp(node.target, node.op, node.value),
             ), node)
@@ -872,7 +1026,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_Delete(self, node):
         for target in node.targets:
             with self.hasblock():
-                assignAST = ast.copy_location(
+                assignAST = full_copy_location(
                     Assign([target], Name(self.Lua_None, Load())),
                     node,
                 )
@@ -1096,12 +1250,20 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.starargs
         assert not node.kwargs
 
+        pcex = self.enable_pcex
         metatable = None
         for keyword in node.keywords:
-            if keyword.arg != "metatable":
+            key = keyword.arg
+            value = keyword.value
+            if key == "metatable":
+                metatable = self.visit(value)
+            elif key == "__PCEX__":
+                assert self.enable_special
+                assert isinstance(value, Name)
+                assert value.id == self.Lua_True
+                pcex = True
+            else:
                 raise NotImplementedError("PEP-3115 are not supported in %s" % type(self).__name__)
-
-            metatable = self.visit(keyword.value)
 
         name = node.name
         bases = node.bases
@@ -1122,6 +1284,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 print("    for k,v in pairs(c) do o[k]=v end")
                 print("  end")
                 print("end)(getfenv());")
+
             print("__name__", "=", repr(name), end=";\n")
 
             block = self.current_block
@@ -1132,6 +1295,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 self.print_node(subnode)
                 if isinstance(subnode, FunctionDef):
                     print("setfenv(%s, _G)" % subnode.name)
+
+            if pcex:
+                print("DO_SUPPORT_PCEX(getfenv())", end=";\n")
 
             print("return getfenv()", end=";\n")
         print("end)(getfenv())", end=";\n")
