@@ -524,16 +524,16 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             vtemp = Name(self.get_tvar(), Load())
 
             result = [vtemp]
-            result.append(self.visit_Assign(Assign(
+            result.append(self.visit_Assign(full_copy_location(Assign(
                 targets = [vtemp],
                 value = node.value,
-            )))
+            ), node)))
 
             for target in node.targets:
-                result.append(Assign(
+                result.append(full_copy_location(Assign(
                     targets = [target],
                     value = vtemp,
-                ))
+                ), node))
 
             return result
 
@@ -1009,11 +1009,18 @@ def DO_SUPPORT_PCEX(cls):
         with self.noblock():
             assert len(node.targets) == 1, node.targets
             rawtarget = node.targets[0]
+
+            value = None
             if isinstance(rawtarget, Tuple):
                 target = ", ".join(map(self.visit, rawtarget.elts))
+                if isinstance(node.value, Tuple):
+                    value = ", ".join(map(self.visit, node.value.elts))
+                    assert len(rawtarget.elts) == len(node.value.elts)
             else:
                 target = self.visit(rawtarget)
-            value = self.visit(node.value)
+
+            if value is None:
+                value = self.visit(node.value)
 
         define_type = ""
         name, pure = self._get_Name(rawtarget)
@@ -1161,7 +1168,7 @@ def DO_SUPPORT_PCEX(cls):
 
         for decorator in node.decorator_list:
             with self.noblock():
-                print("%s = %s(%s)" % (fname, self.visit(decorator), fname), end=";\n")
+                print("%s = %s(%s)" % (node.name, self.visit(decorator), node.name), end=";\n")
 
         raise IsControlFlow
 
@@ -1244,7 +1251,10 @@ def DO_SUPPORT_PCEX(cls):
         return result
 
     def visit_Return(self, node):
-        return "return %s" % self.visit(node.value)
+        if node.value is None:
+            return "return"
+        else:
+            return "return %s" % self.visit(node.value)
 
     def visit_Global(self, node):
         block = self.current_block
