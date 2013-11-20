@@ -299,7 +299,6 @@ def OP_Call2(op, ax, bx):
         assert require_pyobj(a, b)
 
         have, ret = unpack(safemetacall(a, ax, b))
-        lua.print(have, ret)
         if have and ret != NotImplemented:
             return ret
 
