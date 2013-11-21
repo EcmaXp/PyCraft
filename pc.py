@@ -1322,7 +1322,7 @@ def DO_SUPPORT_PCEX(cls):
             for subnode in node.body:
                 self.print_node(subnode)
                 if isinstance(subnode, FunctionDef):
-                    print("setfenv(%s, _G)" % subnode.name)
+                    print("setfenv(%s, _G)" % subnode.name, end=";\n")
 
             if pcex:
                 print("DO_SUPPORT_PCEX(getfenv())", end=";\n")

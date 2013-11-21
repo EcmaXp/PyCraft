@@ -4,17 +4,21 @@ __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
 __PC_ECMAXP_SETUP_PCEX(true) # __PCEX__ YES!
 
 global lua
-
+TAG = "[PY]"
 lua = {}
 for key, value in pairs(_G):
     lua[key] = value
 
 builtins = "builtins"
-TAG = '[PY]'
 OBJ_ID = 0
+inited = False
 
-ObjectID_FromRef = setmetatable({}, {"__mode":"k"})
-ObjectRef_FromID = setmetatable({}, {"__mode":"v"})
+## This table are weaktable.
+ObjID = setmetatable({}, {"__mode":"k"})
+ObjValue = setmetatable({}, {"__mode":"k"})
+Obj_FromID = setmetatable({}, {"__mode":"v"})
+IsBuiltinTypes = setmetatable({}, {"__mode":"k"})
+## must cleaned after collectgarbage()
 
 __PCEX__ = "__PCEX__"
 methods = GET_METHODS()
@@ -67,8 +71,7 @@ def is_float(num):
     return math.floor(num) != num
 
 def is_pyobj(obj):
-    mtable = lua.getmetatable(obj)
-    return mtable and rawget(mtable, TAG) == TAG or false
+    return ObjID[obj] is not nil
 
 def to_pyobj(obj):
     if is_pyobj(obj):
@@ -106,11 +109,11 @@ def register_pyobj(obj):
     OBJ_ID += 1
     obj_id = OBJ_ID
 
-    ObjectID_FromRef[obj] = obj_id
-    ObjectRef_FromID[obj_id] = obj
+    ObjID[obj] = obj_id
+    Obj_FromID[obj_id] = obj
     return obj
 
-def build_builtins_cls_bases(cls, *bases):
+def register_builtins_class(cls, *bases):
     mro = {}
     idx = 1
     LUA_CODE("for i = #bases, 1, -1 do --")
@@ -123,6 +126,7 @@ def build_builtins_cls_bases(cls, *bases):
     mro[idx] = cls
     rawset(cls, "__module__", str("builtins"))
     rawset(cls, "__mro__", tuple(mro))
+    IsBuiltinTypes[cls] = true
     return cls
 
 def Fail_OP(a, ax):
@@ -199,7 +203,7 @@ def issubclass(cls, targets):
     mro = cls.mro()
     assert type(mro) == tuple
 
-    for _, supercls in pairs(mro.value):
+    for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
         if supercls == targets:
             return True
@@ -209,7 +213,7 @@ def issubclass(cls, targets):
 global id
 def id(obj):
     if is_pyobj(obj):
-        return int(ObjectID_FromRef[obj])
+        return int(ObjID[obj])
 
     Fail_OP_Raw(obj, "__id__!")
 
@@ -325,7 +329,7 @@ def OP_Math3_Pow(cx, ax, bx):
 global _OP__Is__, _OP__IsNot__
 def  _OP__Is__(a, b):
     require_pyobj(a, b)
-    return ObjectID_FromRef[a] == ObjectID_FromRef[b]
+    return ObjID[a] == ObjID[b]
 
 def _OP__IsNot__(a, b):
     return not _OP__Is__(a, b)
@@ -452,6 +456,9 @@ class object():
         error(lua.concat("Not found '", k, "' attribute."))
 
     def __setattr__(self, key, value):
+        if IsBuiltinTypes[type(self)] and inited:
+            error("TypeError: can't set attributes of built-in/extension type 'object'")
+
         # TODO: Add PCEX Support!
         rawset(self, key, value)
 
@@ -461,8 +468,6 @@ class object():
     def __repr__(self):
         mtable = getmetatable(self)
         return str(concat("<object ", mtable.__name__, " at ", tostring(self.__id),">"))
-
-rawset(object, TAG, TAG)
 
 global type
 @register_pyobj
@@ -480,14 +485,7 @@ class type(object):
         return cls.__mro__
 
 @register_pyobj
-class builtins_type(type):
-    __name__ = "type"
-
-    def __setattr__(self, name):
-        error("Not allowed setattr for builtins type.")
-
-@register_pyobj
-class ptype(builtins_type):
+class ptype(type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
             require_pyobj(args[1])
@@ -497,9 +495,13 @@ class ptype(builtins_type):
         else:
             error("Unexcepted arguments.")
 
-setmetatable(object, builtins_type)
+setmetatable(object, type)
 setmetatable(type, ptype)
 setmetatable(ptype, ptype)
+
+@register_pyobj
+class BaseException(object, metatable=type):
+    pass
 
 @register_pyobj
 class LuaObject(object, metatable=type):
@@ -512,49 +514,55 @@ class LuaObject(object, metatable=type):
         if mtable and rawget(mtable, "LuaObject"):
             obj = to_luaobj(obj)
 
-        object.__setattr__(self, "value", obj)
+        ObjValue[self] = obj
 
     def __str__(self):
         return str(_OP__Repr__(self))
 
     def __repr__(self):
-        return str(tostring(self.value))
+        return str(tostring(ObjValue[self]))
 
     def __lua__(self):
-        return self.value
+        return ObjValue[self]
 
 @register_pyobj
 class LuaValueOnlySequance(LuaObject, metatable=type):
-    def __init__(self, obj):
-        self.check_type(obj)
-        object.__setattr__(self, "value", obj)
+    def __init__(self, value):
+        if is_pyobj(value):
+            self.check_type(value)
 
-    def check_type(self, obj):
-        if obj[lua.len(obj)] is nil: pass
-        elif obj[1] is nil: pass
-        elif obj[0] is not nil: pass
+        ObjValue[self] = value
+
+    def check_type(self, value):
+        if type(value) == "table": pass
+        elif value[lua.len(value)] is nil: pass
+        elif value[1] is nil: pass
+        elif value[0] is not nil: pass
         else:
             return true
 
         return false
 
-global list
-@register_pyobj
-class list(LuaValueOnlySequance, metatable=type):
-    def __repr__(self):
+    def make_repr(self, s, e):
         ret = []
         idx = 1
 
         sep = ""
-        ret[idx] = "["; idx += 1
-        for k,v in pairs(self.value):
+        ret[idx] = s; idx += 1
+        for k,v in pairs(ObjValue[self]):
             ret[idx] = sep; idx += 1
             ret[idx] = to_luaobj(repr(v)); idx += 1
             sep = ", "
 
-        ret[idx] = "]"; idx += 1
+        ret[idx] = e; idx += 1
 
         return table.concat(ret)
+
+global list
+@register_pyobj
+class list(LuaValueOnlySequance, metatable=type):
+    def __repr__(self):
+        return self.make_repr("[", "]")
 
     def __setattr__(self, key, value):
         error("Not allowed")
@@ -563,19 +571,7 @@ global tuple
 @register_pyobj
 class tuple(LuaValueOnlySequance, metatable=type):
     def __repr__(self):
-        ret = []
-        idx = 1
-
-        sep = ""
-        ret[idx] = "("; idx += 1
-        for k,v in pairs(self.value):
-            ret[idx] = sep; idx += 1
-            ret[idx] = to_luaobj(repr(v)); idx += 1
-            sep = ", "
-
-        ret[idx] = ")"; idx += 1
-
-        return table.concat(ret)
+        return self.make_repr("(", ")")
 
     def __setattr__(self, key, value):
         error("Not allowed")
@@ -588,18 +584,30 @@ class str(LuaObject, metatable=type):
             value = _OP__Str__(value)
             value = to_luaobj(value)
 
-        self.value = value
+        ObjValue[self] = value
 
     def __str__(self):
         return self
 
     def __repr__(self):
-        return str(lua.concat("'", self.value, "'"))
+        return str(lua.concat("'", ObjValue[self], "'"))
+
+def make_bool(value):
+    instance = {"value": value}
+    register_pyobj(instance)
+    setmetatable(instance, bool)
+
+    return instance
 
 global bool
 @register_pyobj
 class bool(LuaObject, metatable=type):
-    def __new__(self, value):
+    def __new__(cls, value):
+        if not inited:
+            instance = object.__new__(cls)
+            instance.value = value
+            return instance
+
         if is_pyobj(value):
             value = _OP__Bool__(value)
             # check type
@@ -621,37 +629,37 @@ class bool(LuaObject, metatable=type):
         elif self.value == false:
             return str("False")
 
-def make_bool(value):
-    instance = {"value": value}
-    register_pyobj(instance)
-    setmetatable(instance, bool)
-
-    return instance
-
-LUA_CODE("True = make_bool(true)")
-LUA_CODE("False = make_bool(false)")
-
 global int
 @register_pyobj
 class int(LuaObject, metatable=type):
     def __add__(self, other):
         # TODO: We must use pattern for something.
-        return int(self.value + other.value)
+
+        return int(ObjValue[self] + ObjValue[other])
 
 global dict
 @register_pyobj
 class dict(LuaObject, metatable=type):
     pass
 
-build_builtins_cls_bases(object)
-build_builtins_cls_bases(type, object)
-build_builtins_cls_bases(list, object)
-build_builtins_cls_bases(str, object)
-build_builtins_cls_bases(int, object)
-build_builtins_cls_bases(dict, object)
+## inital Code
+register_builtins_class(object)
+register_builtins_class(type, object)
+register_builtins_class(list, object)
+register_builtins_class(str, object)
+register_builtins_class(int, object)
+register_builtins_class(dict, object)
+LUA_CODE("True = bool(true)")
+LUA_CODE("False = bool(false)")
+inited = True
+##
 
+##
 
-###
+def table_len(x):
+    count = 0
+    for k, v in pairs(x): count += 1
+    return count
 
 x = list({int(1), int(2), int(3)})
 y = int(5)
