@@ -15,6 +15,103 @@ __all__ = [
     "print_ast", "print_ast_tree", "full_copy_location",
 ]
 
+OBJECT_ATTRS = [
+    # MUST NOT CHANGE ORDER!
+
+    # START BASIC
+    '__new__',
+    '__init__',
+    '__del__',
+    '__repr__',
+    '__str__',
+    '__bytes__',
+    '__format__',
+    '__lt__',
+    '__le__',
+    '__eq__',
+    '__ne__',
+    '__gt__',
+    '__ge__',
+    '__hash__',
+    '__bool__',
+    '__getattr__',
+    '__getattribute__',
+    '__setattr__',
+    '__delattr__',
+    '__dir__',
+    '__get__',
+    '__set__',
+    '__delete__',
+    '__slots__',
+    '__call__',
+    '__len__',
+    '__getitem__',
+    '__setitem__',
+    '__delitem__',
+    '__iter__',
+    '__reversed__',
+    '__contains__',
+    '__add__',
+    '__sub__',
+    '__mul__',
+    '__truediv__',
+    '__floordiv__',
+    '__mod__',
+    '__divmod__',
+    '__pow__',
+    '__lshift__',
+    '__rshift__',
+    '__and__',
+    '__xor__',
+    '__or__',
+    '__radd__',
+    '__rsub__',
+    '__rmul__',
+    '__rtruediv__',
+    '__rfloordiv__',
+    '__rmod__',
+    '__rdivmod__',
+    '__rpow__',
+    '__rlshift__',
+    '__rrshift__',
+    '__rand__',
+    '__rxor__',
+    '__ror__',
+    '__iadd__',
+    '__isub__',
+    '__imul__',
+    '__itruediv__',
+    '__ifloordiv__',
+    '__imod__',
+    '__ipow__',
+    '__ilshift__',
+    '__irshift__',
+    '__iand__',
+    '__ixor__',
+    '__ior__',
+    '__neg__',
+    '__pos__',
+    '__abs__',
+    '__invert__',
+    '__complex__',
+    '__int__',
+    '__float__',
+    '__round__',
+    '__index__',
+    '__enter__',
+    '__exit__',
+    # END BASIC
+
+    # START EXTRA
+    '__lua__',
+    # END EXTRA
+
+    # NEXT METHOD ARE HERE
+]
+
+assert OBJECT_ATTRS[42 - 1] == '__rshift__'
+assert OBJECT_ATTRS.index("__pos__") == 72 - 1
+
 class FullCopyLocation(ast.NodeVisitor):
     def __init__(self, node):
         self.node = node
@@ -796,6 +893,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 else:
                     assert False
                 return ""
+            elif func == "__PC_ECMAXP_GET_OBJECT_ATTRS":
+                assert len(node.args) == 0
+                return self.visit(List(list(map(Str, OBJECT_ATTRS)), Load()))
 
             assert not node.keywords
             assert node.kwargs is None
