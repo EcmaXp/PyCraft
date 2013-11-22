@@ -112,6 +112,82 @@ OBJECT_ATTRS = [
 assert OBJECT_ATTRS[42 - 1] == '__rshift__'
 assert OBJECT_ATTRS.index("__pos__") == 72 - 1
 
+PYTHON_KEYWORDS = {
+    'False',
+    'None',
+    'True',
+    'and',
+    'as',
+    'assert',
+    'break',
+    'class',
+    'continue',
+    'def',
+    'del',
+    'elif',
+    'else',
+    'except',
+    'finally',
+    'for',
+    'from',
+    'global',
+    'if',
+    'import',
+    'in',
+    'is',
+    'lambda',
+    'nonlocal',
+    'not',
+    'or',
+    'pass',
+    'raise',
+    'return',
+    'try',
+    'while',
+    'with',
+    'yield',
+}
+
+LUA_KEYWORDS = {
+    'and',
+    'break',
+    'do',
+    'else',
+    'elseif',
+    'end',
+    'false',
+    'for',
+    'function',
+    'if',
+    'in',
+    'local',
+    'nil',
+    'not',
+    'or',
+    'repeat',
+    'return',
+    'then',
+    'true',
+    'until',
+    'while',
+}
+
+SPECIAL_NAMES = list(sorted(LUA_KEYWORDS - PYTHON_KEYWORDS)) + ["LUA_CODE"]
+SPECIAL_NAMES = [
+    'do',
+    'elseif',
+    'end',
+    'false',
+    'function',
+    'local',
+    'nil',
+    'repeat',
+    'then',
+    'true',
+    'until',
+    'LUA_CODE', # THIS IS LITE LUA's internal api name.
+]
+
 class FullCopyLocation(ast.NodeVisitor):
     def __init__(self, node):
         self.node = node
@@ -479,6 +555,18 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 
     def visit_BoolOp(self, node):
         return self.make_op(node.op, *node.values)
+
+    def visit_Name(self, node):
+        if node.id in SPECIAL_NAMES:
+            raise NameError("Lua's keyword are detected. (%r)" % node.id)
+
+        return node
+
+    def visit_Attribute(self, node):
+        if node.attr in SPECIAL_NAMES:
+            raise NameError("Lua's keyword are detected. (%r)" % node.attr)
+
+        return self.rvisit(node)
 
     def visit_Call(self, node):
         with self.noblock():
