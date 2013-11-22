@@ -3,106 +3,9 @@ from _ast import *
 import sys
 import os
 import io
-import contextlib
+import contextlibㅒ
 import weakref
 import random
-
-OBJECT_ATTRS = [
-    # MUST NOT CHANGE ORDER!
-
-    # START BASIC
-    '__new__',
-    '__init__',
-    '__del__',
-    '__repr__',
-    '__str__',
-    '__bytes__',
-    '__format__',
-    '__lt__',
-    '__le__',
-    '__eq__',
-    '__ne__',
-    '__gt__',
-    '__ge__',
-    '__hash__',
-    '__bool__',
-    '__getattr__',
-    '__getattribute__',
-    '__setattr__',
-    '__delattr__',
-    '__dir__',
-    '__get__',
-    '__set__',
-    '__delete__',
-    '__slots__',
-    '__call__',
-    '__len__',
-    '__getitem__',
-    '__setitem__',
-    '__delitem__',
-    '__iter__',
-    '__reversed__',
-    '__contains__',
-    '__add__',
-    '__sub__',
-    '__mul__',
-    '__truediv__',
-    '__floordiv__',
-    '__mod__',
-    '__divmod__',
-    '__pow__',
-    '__lshift__',
-    '__rshift__',
-    '__and__',
-    '__xor__',
-    '__or__',
-    '__radd__',
-    '__rsub__',
-    '__rmul__',
-    '__rtruediv__',
-    '__rfloordiv__',
-    '__rmod__',
-    '__rdivmod__',
-    '__rpow__',
-    '__rlshift__',
-    '__rrshift__',
-    '__rand__',
-    '__rxor__',
-    '__ror__',
-    '__iadd__',
-    '__isub__',
-    '__imul__',
-    '__itruediv__',
-    '__ifloordiv__',
-    '__imod__',
-    '__ipow__',
-    '__ilshift__',
-    '__irshift__',
-    '__iand__',
-    '__ixor__',
-    '__ior__',
-    '__neg__',
-    '__pos__',
-    '__abs__',
-    '__invert__',
-    '__complex__',
-    '__int__',
-    '__float__',
-    '__round__',
-    '__index__',
-    '__enter__',
-    '__exit__',
-    # END BASIC
-
-    # START EXTRA
-    '__lua__',
-    # END EXTRA
-
-    # NEXT METHOD ARE HERE
-]
-
-assert OBJECT_ATTRS.index("__pos__") == 72 - 1
-assert OBJECT_ATTRS[42 - 1] == '__rshift__'
 
 CTYPE_LITE = "LITE"
 CTYPE_FULL = "FULL"
@@ -682,7 +585,6 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def reset(self):
         super().reset()
         self.enable_special = False
-        self.enable_pcex = False
 
     def new_blockenv(self, *, scope=False, first=False, **extra):
         if not scope and not first:
@@ -877,40 +779,15 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 assert isinstance(node.args[0], Str)
                 assert node.args[0].s == "YES"
                 self.enable_special = True
-                # SETUP BASIC WORK
-                code = """\
-__PC_METHODS = GET_METHODS()
-__PC_METHODS_REV = {}
-for k, v in pairs(__PC_METHODS):
-    __PC_METHODS_REV[v] = k
-
-def DO_SUPPORT_PCEX(cls):
-    cls.__PCEX__ = nil
-
-    pcex = {}
-    for k, v in pairs(cls):
-        idx = __PC_METHODS_REV[k]
-        if idx is not nil:
-            pcex[idx] = v
-
-    cls.__PCEX__ = pcex
-    return cls
-"""
-
-                envAST = ast.parse(code.strip(), mode="exec")
-                envAST = full_copy_location(envAST, node)
-                self.unroll(envAST.body)
                 return ""
             elif not self.enable_special:
                 pass
-            elif func in ("__PC_ECMAXP_SETUP_PCEX", "__PC_ECMAXP_SETUP_AUTO_GLOBAL"):
+            elif func in ("__PC_ECMAXP_SETUP_AUTO_GLOBAL",):
                 assert len(node.args) == 1
                 assert isinstance(node.args[0], Name)
                 arg = node.args[0].id
                 arg = {self.Lua_True:True, self.Lua_False:False}[arg]
-                if func == "__PC_ECMAXP_SETUP_PCEX":
-                    self.enable_pcex = arg
-                elif func == "__PC_ECMAXP_SETUP_AUTO_GLOBAL":
+                if func == "__PC_ECMAXP_SETUP_AUTO_GLOBAL":
                     block = self.current_block
                     if arg:
                         block.default_defined = block.global_defined
@@ -919,13 +796,6 @@ def DO_SUPPORT_PCEX(cls):
                 else:
                     assert False
                 return ""
-            elif func == "_M": # THIS IS
-                assert len(node.args) == 1
-                assert isinstance(node.args[0], Str)
-                return repr(OBJECT_ATTRS.index(node.args[0].s) + 1)
-            elif func == "GET_METHODS":
-                assert len(node.args) == 0
-                return self.visit(List(list(map(Str, OBJECT_ATTRS)), Load()))
 
             assert not node.keywords
             assert node.kwargs is None
@@ -1278,18 +1148,17 @@ def DO_SUPPORT_PCEX(cls):
         assert not node.starargs
         assert not node.kwargs
 
-        pcex = self.enable_pcex
+        setup = None
         metatable = None
         for keyword in node.keywords:
             key = keyword.arg
             value = keyword.value
             if key == "metatable":
                 metatable = self.visit(value)
-            elif key == "__PCEX__":
+            elif key == "_loader":
                 assert self.enable_special
                 assert isinstance(value, Name)
-                assert value.id == self.Lua_True
-                pcex = True
+                setup = value.id
             else:
                 raise NotImplementedError("PEP-3115 are not supported in %s" % type(self).__name__)
 
@@ -1324,11 +1193,11 @@ def DO_SUPPORT_PCEX(cls):
                 if isinstance(subnode, FunctionDef):
                     print("setfenv(%s, _G)" % subnode.name, end=";\n")
 
-            if pcex:
-                print("DO_SUPPORT_PCEX(getfenv())", end=";\n")
-
             print("return getfenv()", end=";\n")
         print("end)(getfenv())", end=";\n")
+    
+        if setup:
+            print("%s(%s)" % (setup, name), end=";\n")
 
         if metatable:
             print("setmetatable(%s, %s)" % (name, metatable), end=";\n")
