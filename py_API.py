@@ -3,14 +3,18 @@ if pyscripter: exit(__import__('pc').main())
 __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
 
 global lua
-TAG = "[PY]"
 lua = {}
+lua.len = lambda obj: LUA_CODE("#obj")
+lua.concat = lambda *args: table.concat(args)
 for key, value in pairs(_G):
     lua[key] = value
 
-builtins = "builtins"
-OBJ_ID = 0
+TAG = "[PY]"
+ObjLastID = 0
 inited = False
+
+__PCEX__ = "__PCEX__"
+builtins = "builtins"
 
 ## This table are weaktable.
 ObjID = setmetatable({}, {"__mode":"k"})
@@ -19,29 +23,13 @@ Obj_FromID = setmetatable({}, {"__mode":"v"})
 IsBuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## must cleaned after collectgarbage()
 
-__PCEX__ = "__PCEX__"
 builtin_methods = __PC_ECMAXP_GET_OBJECT_ATTRS()
-
 builtin_methods_rev = {}
 for k, v in pairs(builtin_methods):
     builtin_methods_rev[v] = k
 
 assert builtin_methods[42] == '__rshift__'
 assert builtin_methods_rev["__pos__"] == 72
-
-def lua_len(obj):
-    return LUA_CODE("#obj")
-
-def lua_concat(*args):
-    r = ""
-    for _, x in pairs(args):
-        x = tostring(x)
-        r = LUA_CODE("r..x")
-
-    return r
-
-lua.len = lua_len
-lua.concat = lua_concat
 
 def is_float(num):
     if lua.type(num) != "number":
@@ -111,15 +99,15 @@ def require_pyobj(*objs):
     return true
 
 def register_pyobj(obj):
-    global OBJ_ID
-    OBJ_ID += 1
-    obj_id = OBJ_ID
+    global ObjLastID
+    ObjLastID += 1
+    obj_id = ObjLastID
 
     ObjID[obj] = obj_id
     Obj_FromID[obj_id] = obj
     return obj
 
-def setup_basic_class(cls):
+def setup_base_class(cls):
     rawset(cls, __PCEX__, nil)
 
     pcex = {}
@@ -130,6 +118,13 @@ def setup_basic_class(cls):
 
     rawset(cls, __PCEX__, pcex)
     register_pyobj(cls)
+
+    return cls
+
+def setup_basic_class(cls):
+    setup_base_class(cls)
+    setmetatable(cls, type)
+
     return cls
 
 def register_builtins_class(cls, *bases):
@@ -437,7 +432,7 @@ __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 _ = nil
 
 global object
-@setup_basic_class
+@setup_base_class
 class object():
     def __init__(self):
         pass
@@ -491,7 +486,7 @@ class object():
         return str(concat("<object ", mtable.__name__, " at ", tostring(self.__id),">"))
 
 global type
-@setup_basic_class
+@setup_base_class
 class type(object):
     def __call__(cls, *args):
         instance = cls.__new__(cls, *args)
@@ -505,7 +500,7 @@ class type(object):
     def mro(cls):
         return cls.__mro__
 
-@setup_basic_class
+@setup_base_class
 class ptype(type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
@@ -521,11 +516,54 @@ setmetatable(type, ptype)
 setmetatable(ptype, ptype)
 
 @setup_basic_class
-class BaseException(object, metatable=type):
-    pass
+class BaseException(object):
+    def __new__(cls, *args):
+        instance = object.__new__(cls)
+        instance.args = args
+        _OP__Init__(instance, *args)
+
+    def __repr__(self):
+        pass
 
 @setup_basic_class
-class LuaObject(object, metatable=type):
+class BuiltinConstType(object):
+    def __new__(cls, *args):
+        if not inited:
+            instance = object.__new__(cls, *args)
+            _OP__Init__(instance, *args)
+            return instance
+
+        return cls._get_singleton()
+
+    def _get_singleton(cls):
+        error("Not defined.")
+
+@setup_basic_class
+class NotImplementedType(BuiltinConstType):
+    def _get_singleton(cls):
+        return NotImplemented
+
+    def __repr__(self):
+        return str("NotImplemented")
+
+@setup_basic_class
+class EllipsisType(BuiltinConstType):
+    def _get_singleton(self):
+        return Ellipsis
+
+    def __repr__(self):
+        return str("Ellipsis")
+
+@setup_basic_class
+class NoneType(BuiltinConstType):
+    def _get_singleton(cls):
+        return None
+
+    def __repr__(self):
+        return str("None")
+
+@setup_basic_class
+class LuaObject(object):
     # This is hidden, and core of calc.
     LuaObject = true
     # isinstance are need.
@@ -547,7 +585,7 @@ class LuaObject(object, metatable=type):
         return ObjValue[self]
 
 @setup_basic_class
-class LuaValueOnlySequance(LuaObject, metatable=type):
+class LuaValueOnlySequance(LuaObject):
     def __init__(self, value):
         if is_pyobj(value):
             self.check_type(value)
@@ -581,7 +619,7 @@ class LuaValueOnlySequance(LuaObject, metatable=type):
 
 global list
 @setup_basic_class
-class list(LuaValueOnlySequance, metatable=type):
+class list(LuaValueOnlySequance):
     def __repr__(self):
         return self.make_repr("[", "]")
 
@@ -590,7 +628,7 @@ class list(LuaValueOnlySequance, metatable=type):
 
 global tuple
 @setup_basic_class
-class tuple(LuaValueOnlySequance, metatable=type):
+class tuple(LuaValueOnlySequance):
     def __repr__(self):
         return self.make_repr("(", ")")
 
@@ -599,7 +637,7 @@ class tuple(LuaValueOnlySequance, metatable=type):
 
 global str
 @setup_basic_class
-class str(LuaObject, metatable=type):
+class str(LuaObject):
     def __init__(self, value):
         if is_pyobj(value):
             value = _OP__Str__(value)
@@ -622,11 +660,11 @@ def make_bool(value):
 
 global bool
 @setup_basic_class
-class bool(LuaObject, metatable=type):
+class bool(LuaObject):
     def __new__(cls, value):
         if not inited:
             instance = object.__new__(cls)
-            instance.value = value
+            ObjValue[instance] = value
             return instance
 
         if is_pyobj(value):
@@ -645,14 +683,15 @@ class bool(LuaObject, metatable=type):
         error("__Bool__ are returned unknown value.")
 
     def __repr__(self):
-        if self.value == true:
+        value = ObjValue[self]
+        if value == true:
             return str("True")
-        elif self.value == false:
+        elif value == false:
             return str("False")
 
 global int
 @setup_basic_class
-class int(LuaObject, metatable=type):
+class int(LuaObject):
     def __add__(self, other):
         # TODO: We must use pattern for something.
 
@@ -660,19 +699,30 @@ class int(LuaObject, metatable=type):
 
 global dict
 @setup_basic_class
-class dict(LuaObject, metatable=type):
+class dict(LuaObject):
     pass
 
 ## inital Code
-register_builtins_class(object)
-register_builtins_class(type, object)
-register_builtins_class(list, object)
-register_builtins_class(str, object)
-register_builtins_class(int, object)
-register_builtins_class(dict, object)
-LUA_CODE("True = bool(true)")
-LUA_CODE("False = bool(false)")
-inited = True
+def inital():
+    register_builtins_class(object)
+    register_builtins_class(NotImplementedType, object)
+    register_builtins_class(EllipsisType, object)
+    register_builtins_class(NoneType, object)
+    register_builtins_class(type, object)
+    register_builtins_class(list, object)
+    register_builtins_class(tuple, object)
+    register_builtins_class(str, object)
+    register_builtins_class(int, object)
+    register_builtins_class(dict, object)
+    _M["NotImplemented"] = NotImplementedType()
+    _M["Ellipsis"] = EllipsisType()
+    _M["None"] = NoneType()
+    _M["True"] = bool(true)
+    _M["False"] = bool(false)
+
+    return true
+
+inited = inital()
 ##
 
 ##

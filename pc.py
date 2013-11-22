@@ -172,8 +172,9 @@ LUA_KEYWORDS = {
     'while',
 }
 
-SPECIAL_NAMES = list(sorted(LUA_KEYWORDS - PYTHON_KEYWORDS)) + ["LUA_CODE"]
-SPECIAL_NAMES = [
+SPECIAL_NAMES = {"LUA_CODE"} | (LUA_KEYWORDS - PYTHON_KEYWORDS)
+SPECIAL_NAMES = {
+    'LUA_CODE', # THIS IS LITE LUA's INTERNAL API NAME (FOR EXECUTE LUA CODE)
     'do',
     'elseif',
     'end',
@@ -184,9 +185,8 @@ SPECIAL_NAMES = [
     'repeat',
     'then',
     'true',
-    'until',
-    'LUA_CODE', # THIS IS LITE LUA's internal api name.
-]
+    'until'
+}
 
 class FullCopyLocation(ast.NodeVisitor):
     def __init__(self, node):
@@ -558,13 +558,20 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
 
     def visit_Name(self, node):
         if node.id in SPECIAL_NAMES:
-            raise NameError("Lua's keyword are detected. (%r)" % node.id)
+            if node.id in block.local_defined:
+                return "getfenv()[%r]" % self.rvisit(node.id)
+            elif node.id in block.global_defined:
+                return "_M[%r]" % self.rvisit(node.id)
+            elif node.id in block.nonlocal_defined:
+                raise SyntaxError("Not support Lua Keyword (%r) with nonlocal" % node.id)
+            else:
+                raise NameError("Not support Lua keyword (%r) with this scope (underdefined.)" % node.id)
 
         return node
 
     def visit_Attribute(self, node):
         if node.attr in SPECIAL_NAMES:
-            raise NameError("Lua's keyword are detected. (%r)" % node.attr)
+            return "%s[%r]" % (self.rvisit(node.value), node.attr)
 
         return self.rvisit(node)
 
