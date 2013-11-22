@@ -21,7 +21,106 @@ IsBuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## must cleaned after collectgarbage()
 
 __PCEX__ = "__PCEX__"
-methods = GET_METHODS()
+builtin_methods = [
+    # MUST NOT CHANGE ORDER!
+
+    # START BASIC
+    '__new__',
+    '__init__',
+    '__del__',
+    '__repr__',
+    '__str__',
+    '__bytes__',
+    '__format__',
+    '__lt__',
+    '__le__',
+    '__eq__',
+    '__ne__',
+    '__gt__',
+    '__ge__',
+    '__hash__',
+    '__bool__',
+    '__getattr__',
+    '__getattribute__',
+    '__setattr__',
+    '__delattr__',
+    '__dir__',
+    '__get__',
+    '__set__',
+    '__delete__',
+    '__slots__',
+    '__call__',
+    '__len__',
+    '__getitem__',
+    '__setitem__',
+    '__delitem__',
+    '__iter__',
+    '__reversed__',
+    '__contains__',
+    '__add__',
+    '__sub__',
+    '__mul__',
+    '__truediv__',
+    '__floordiv__',
+    '__mod__',
+    '__divmod__',
+    '__pow__',
+    '__lshift__',
+    '__rshift__',
+    '__and__',
+    '__xor__',
+    '__or__',
+    '__radd__',
+    '__rsub__',
+    '__rmul__',
+    '__rtruediv__',
+    '__rfloordiv__',
+    '__rmod__',
+    '__rdivmod__',
+    '__rpow__',
+    '__rlshift__',
+    '__rrshift__',
+    '__rand__',
+    '__rxor__',
+    '__ror__',
+    '__iadd__',
+    '__isub__',
+    '__imul__',
+    '__itruediv__',
+    '__ifloordiv__',
+    '__imod__',
+    '__ipow__',
+    '__ilshift__',
+    '__irshift__',
+    '__iand__',
+    '__ixor__',
+    '__ior__',
+    '__neg__',
+    '__pos__',
+    '__abs__',
+    '__invert__',
+    '__complex__',
+    '__int__',
+    '__float__',
+    '__round__',
+    '__index__',
+    '__enter__',
+    '__exit__',
+    # END BASIC
+
+    # START EXTRA
+    '__lua__',
+    # END EXTRA
+
+    # NEXT METHOD ARE HERE
+]
+
+builtin_methods_rev = {}
+for k, v in pairs(builtin_methods):
+    builtin_methods_rev[v] = k
+
+assert builtin_methods[42] == '__rshift__'
+assert builtin_methods.index("__pos__") == 72
 
 def lua_len(obj):
     return LUA_CODE("#obj")
@@ -112,6 +211,19 @@ def register_pyobj(obj):
     ObjID[obj] = obj_id
     Obj_FromID[obj_id] = obj
     return obj
+
+def setup_basic_class(cls):
+    rawset(cls, __PCEX__, nil)
+
+    pcex = {}
+    for k, v in pairs(cls):
+        idx = builtin_methods_rev[k]
+        if idx is not nil:
+            pcex[idx] = v
+
+    rawset(cls, __PCEX__, pcex)
+    register_pyobj(cls)
+    return cls
 
 def register_builtins_class(cls, *bases):
     mro = {}
@@ -416,7 +528,7 @@ _OP__Lua__ = OP_Call(_M('__lua__'))
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 
 global object
-@register_pyobj
+@setup_basic_class
 class object():
     def __init__(self):
         pass
@@ -470,7 +582,7 @@ class object():
         return str(concat("<object ", mtable.__name__, " at ", tostring(self.__id),">"))
 
 global type
-@register_pyobj
+@setup_basic_class
 class type(object):
     def __call__(cls, *args):
         instance = cls.__new__(cls, *args)
@@ -484,7 +596,7 @@ class type(object):
     def mro(cls):
         return cls.__mro__
 
-@register_pyobj
+@setup_basic_class
 class ptype(type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
@@ -499,11 +611,11 @@ setmetatable(object, type)
 setmetatable(type, ptype)
 setmetatable(ptype, ptype)
 
-@register_pyobj
+@setup_basic_class
 class BaseException(object, metatable=type):
     pass
 
-@register_pyobj
+@setup_basic_class
 class LuaObject(object, metatable=type):
     # This is hidden, and core of calc.
     LuaObject = true
@@ -525,7 +637,7 @@ class LuaObject(object, metatable=type):
     def __lua__(self):
         return ObjValue[self]
 
-@register_pyobj
+@setup_basic_class
 class LuaValueOnlySequance(LuaObject, metatable=type):
     def __init__(self, value):
         if is_pyobj(value):
@@ -559,7 +671,7 @@ class LuaValueOnlySequance(LuaObject, metatable=type):
         return table.concat(ret)
 
 global list
-@register_pyobj
+@setup_basic_class
 class list(LuaValueOnlySequance, metatable=type):
     def __repr__(self):
         return self.make_repr("[", "]")
@@ -568,7 +680,7 @@ class list(LuaValueOnlySequance, metatable=type):
         error("Not allowed")
 
 global tuple
-@register_pyobj
+@setup_basic_class
 class tuple(LuaValueOnlySequance, metatable=type):
     def __repr__(self):
         return self.make_repr("(", ")")
@@ -577,7 +689,7 @@ class tuple(LuaValueOnlySequance, metatable=type):
         error("Not allowed")
 
 global str
-@register_pyobj
+@setup_basic_class
 class str(LuaObject, metatable=type):
     def __init__(self, value):
         if is_pyobj(value):
@@ -600,7 +712,7 @@ def make_bool(value):
     return instance
 
 global bool
-@register_pyobj
+@setup_basic_class
 class bool(LuaObject, metatable=type):
     def __new__(cls, value):
         if not inited:
@@ -630,7 +742,7 @@ class bool(LuaObject, metatable=type):
             return str("False")
 
 global int
-@register_pyobj
+@setup_basic_class
 class int(LuaObject, metatable=type):
     def __add__(self, other):
         # TODO: We must use pattern for something.
@@ -638,7 +750,7 @@ class int(LuaObject, metatable=type):
         return int(ObjValue[self] + ObjValue[other])
 
 global dict
-@register_pyobj
+@setup_basic_class
 class dict(LuaObject, metatable=type):
     pass
 
