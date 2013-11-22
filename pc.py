@@ -1148,17 +1148,17 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.starargs
         assert not node.kwargs
 
-        setup = None
+        loader = None
         metatable = None
         for keyword in node.keywords:
             key = keyword.arg
             value = keyword.value
             if key == "metatable":
                 metatable = self.visit(value)
-            elif key == "_loader":
+            elif key == "loader":
                 assert self.enable_special
                 assert isinstance(value, Name)
-                setup = value.id
+                loader = value.id
             else:
                 raise NotImplementedError("PEP-3115 are not supported in %s" % type(self).__name__)
 
@@ -1196,8 +1196,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             print("return getfenv()", end=";\n")
         print("end)(getfenv())", end=";\n")
     
-        if setup:
-            print("%s(%s)" % (setup, name), end=";\n")
+        if loader:
+            print("%s = %s(%s)" % (name, loader, name), end=";\n")
 
         if metatable:
             print("setmetatable(%s, %s)" % (name, metatable), end=";\n")
