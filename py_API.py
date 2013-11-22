@@ -9,6 +9,9 @@ lua.concat = lambda *args: table.concat(args)
 for key, value in pairs(_G):
     lua[key] = value
 
+PY_OBJ_TAG = "#"
+LUA_OBJ_TAG = "@"
+
 TAG = "[PY]"
 ObjLastID = 0
 inited = False
@@ -30,33 +33,7 @@ for k, v in pairs(builtin_methods):
 
 assert builtin_methods[42] == '__rshift__'
 assert builtin_methods_rev["__pos__"] == 72
-
-def is_float(num):
-    if lua.type(num) != "number":
-        error("This is not number", 2)
-
-    return math.floor(num) != num
-
-def error(msg, level):
-    if level is nil:
-        level = 1
-
-    level += 1
-    lua.error(lua.concat(TAG, " ", msg), level)
-
-def require_args(*args):
-    for key, value in pairs(args):
-        if value is nil:
-            error("SystemError: Not Enough Item")
-
-    return True
-
-def nonrequire_args(*args):
-    for key, value in pairs(args):
-        if value is not nil:
-            error("SystemError: Not Enough Item")
-
-    return True
+error = nil
 
 def is_float(num):
     if lua.type(num) != "number":
@@ -67,24 +44,13 @@ def is_float(num):
 def is_pyobj(obj):
     return ObjID[obj] is not nil
 
-def to_pyobj(obj):
+def PObj(obj):
     if is_pyobj(obj):
         return obj
     else:
         return LuaObject(obj)
 
-##        objtype = lua.type(obj)
-##        if objtype == "number":
-##            if not is_float(obj):
-##                return int(obj)
-##            else:
-##                return float(obj)
-##        elif objtype == "string":
-##            return str(obj)
-##        else:
-##            return LuaObject(obj)
-
-def to_luaobj(obj):
+def LObj(obj):
     if is_pyobj(obj):
         return _OP__Lua__(obj)
     else:
@@ -107,6 +73,36 @@ def register_pyobj(obj):
     Obj_FromID[obj_id] = obj
     return obj
 
+def error(msg, level):
+    if level is nil:
+        level = 1
+
+    if is_pyobj(msg):
+        msg = LObj(msg)
+
+    level += 1
+    lua.error(lua.concat(TAG, " ", tostring(msg)), level)
+
+def require_args(*args):
+    for key, value in pairs(args):
+        if value is nil:
+            error("SystemError: Not Enough Item")
+
+    return True
+
+def nonrequire_args(*args):
+    for key, value in pairs(args):
+        if value is not nil:
+            error("SystemError: Not Enough Item")
+
+    return True
+
+def is_float(num):
+    if lua.type(num) != "number":
+        error("This is not number", 2)
+
+    return math.floor(num) != num
+
 def setup_base_class(cls):
     rawset(cls, __PCEX__, nil)
 
@@ -117,6 +113,7 @@ def setup_base_class(cls):
             pcex[idx] = v
 
     rawset(cls, __PCEX__, pcex)
+    IsBuiltinTypes[cls] = false
     register_pyobj(cls)
 
     return cls
@@ -127,30 +124,47 @@ def setup_basic_class(cls):
 
     return cls
 
-def register_builtins_class(cls, *bases):
-    mro = {}
+def setup_hide_class(cls):
+    IsBuiltinTypes[cls] = nil
+    return cls
+
+def register_builtins_class(cls):
     idx = 1
-    LUA_CODE("for i = #bases, 1, -1 do --")
-    if true:
-        base = bases[i]
-        mro[idx] = base
-        idx += 1
-    LUA_CODE("end")
+    mro = {}
+
+    bases = rawget(cls, "__bases__")
+    if bases is not nil:
+        LUA_CODE("for i = #bases, 1, -1 do --")
+        if true:
+            base = bases[i]
+            if IsBuiltinTypes[base] is not nil:
+                mro[idx] = base
+                idx += 1
+        LUA_CODE("end")
 
     mro[idx] = cls
+    idx += 1
+
+    if cls != object:
+        mro[idx] = object
+        idx += 1
+
+    rawset(cls, "__bases__", nil)
+    rawset(cls, "__name__", str(rawget(cls, "__name__")))
     rawset(cls, "__module__", str("builtins"))
     rawset(cls, "__mro__", tuple(mro))
+
     IsBuiltinTypes[cls] = true
     return cls
 
 def Fail_OP(a, ax):
-    error(lua.concat(to_luaobj(repr(a)), " are not support ", methods[ax]))
+    error(lua.concat(LObj(repr(a)), " are not support ", builtin_methods[ax]))
 
 def Fail_OP_Raw(a, raw_ax):
-    error(lua.concat(to_luaobj(repr(a)), " are not support ", raw_ax))
+    error(lua.concat(LObj(repr(a)), " are not support ", raw_ax))
 
 def Fail_OP_Math_Raw(a, b, raw_ax):
-    error(lua.concat("Not support ", to_luaobj(repr(a)), ' ', raw_ax, ' ', to_luaobj(repr(b))))
+    error(lua.concat("Not support ", LObj(repr(a)), ' ', raw_ax, ' ', LObj(repr(b))))
 
 def Fail_OP_Math(a, b, ax, extra):
     if extra is nil:
@@ -158,78 +172,14 @@ def Fail_OP_Math(a, b, ax, extra):
     else:
         extra = lua.concat(" ", extra)
 
-    error(lua.concat("Not support ", to_luaobj(repr(a)), ' ', methods[ax], ' ', to_luaobj(repr(b)), extra))
+    error(lua.concat("Not support ", LObj(repr(a)), ' ', builtin_methods[ax], ' ', LObj(repr(b)), extra))
 
 def Fail_OP_Math_Pow(a, b, ax, c):
     extra = ""
     if c:
-        extra = lua.concat("% ", to_luaobj(repr(c)))
+        extra = lua.concat("% ", LObj(repr(c)))
 
     Fail_OP_Math(a, b, ax, c)
-
-global repr
-def repr(obj):
-    if is_pyobj(obj):
-        return _OP__Repr__(obj)
-    else:
-        return lua.concat("@(", tostring(obj), ")")
-
-global print
-def print(*args):
-    write = lua.io.write
-    sep = " "
-
-    for _, arg in pairs(args):
-        if is_pyobj(arg):
-            arg = str(arg)
-        else:
-            arg = repr(arg)
-
-        arg = to_luaobj(arg)
-        write(arg)
-        write(sep)
-
-    write("\n")
-
-global isinstance
-def isinstance(cls, targets):
-    require_pyobj(obj)
-
-    if type(cls) != type:
-        cls = type(obj)
-
-    mro = cls.mro()
-    assert type(mro) == tuple
-
-    for _, supercls in pairs(mro.value):
-        require_pyobj(supercls)
-        if supercls == targets:
-            return True
-
-    return False
-
-def issubclass(cls, targets):
-    require_pyobj(obj)
-
-    if type(cls) != type:
-        error("issubclass() arg 1 must be a class")
-
-    mro = cls.mro()
-    assert type(mro) == tuple
-
-    for _, supercls in pairs(ObjValue[mro]):
-        require_pyobj(supercls)
-        if supercls == targets:
-            return True
-
-    return False
-
-global id
-def id(obj):
-    if is_pyobj(obj):
-        return int(ObjID[obj])
-
-    Fail_OP_Raw(obj, "__id__!")
 
 def OP_Call(ax):
     def func(a, *args):
@@ -266,6 +216,13 @@ def OP_Math3(cx, ax, bx): # cx is first.
         assert require_pyobj(a, b)
         am = rawget(getmetatable(a), __PCEX__)
         bm = rawget(getmetatable(b), __PCEX__)
+        is_n = isinstance(a, int) == True or isinstance(b, float) == True
+
+        if is_n:
+            f = am[ax]
+            if f:
+                ret = f(a, b)
+                if ret != NotImplemented: return ret
 
         f = am[cx]
         if f:
@@ -273,10 +230,11 @@ def OP_Math3(cx, ax, bx): # cx is first.
             if ret != NotImplemented: return ret
 
         # OP_Math2
-        f = am[ax]
-        if f:
-            ret = f(a, b)
-            if ret != NotImplemented: return ret
+        if not is_n:
+            f = am[ax]
+            if f:
+                ret = f(a, b)
+                if ret != NotImplemented: return ret
 
         f = bm[bx]
         if f:
@@ -428,8 +386,72 @@ _OP__Exit__ = OP_Call(_('__exit__'))
 
 ## Extra Call
 _OP__Lua__ = OP_Call(_('__lua__'))
+
+## Builtins
+def repr(obj):
+    if is_pyobj(obj):
+        return _OP__Repr__(obj)
+    else:
+        return lua.concat(LUA_OBJ_TAG, "(", tostring(obj), ")")
+
+def print(*args):
+    write = lua.io.write
+    sep = " "
+
+    for _, arg in pairs(args):
+        if is_pyobj(arg):
+            arg = str(arg)
+        else:
+            arg = repr(arg)
+
+        arg = LObj(arg)
+        write(arg)
+        write(sep)
+
+    write("\n")
+
+def isinstance(obj, targets):
+    require_pyobj(obj)
+
+    cls = type(obj)
+    mro = cls.mro()
+    assert type(mro) == tuple
+
+    for _, supercls in pairs(ObjValue[mro]):
+        require_pyobj(supercls)
+        if supercls == targets:
+            return True
+
+    return False
+
+def issubclass(cls, targets):
+    require_pyobj(obj)
+
+    if type(cls) != type:
+        error("issubclass() arg 1 must be a class")
+
+    mro = cls.mro()
+    assert type(mro) == tuple
+
+    for _, supercls in pairs(ObjValue[mro]):
+        require_pyobj(supercls)
+        if supercls == targets:
+            return True
+
+    return False
+
+def id(obj):
+    if is_pyobj(obj):
+        return int(ObjID[obj])
+
+    Fail_OP_Raw(obj, "__id!")
+
+def len(obj):
+    return _OP__Len__(obj)
+
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 _ = nil
+## end?
 
 global object
 @setup_base_class
@@ -447,10 +469,11 @@ class object():
         return _OP__Setattr__(self, key, value)
 
     def __tostring(self):
-        return lua.concat("#(", to_luaobj(repr(self)), ")")
+        return lua.concat(PY_OBJ_TAG, "(", LObj(repr(self)), ")")
 
     def __new__(cls, *args):
-        instance = register_pyobj({})
+        instance = {}
+        instance = register_pyobj(instance)
         lua.setmetatable(instance, cls)
         _OP__Init__(instance, *args)
 
@@ -483,7 +506,7 @@ class object():
 
     def __repr__(self):
         mtable = getmetatable(self)
-        return str(concat("<object ", mtable.__name__, " at ", tostring(self.__id),">"))
+        return str(lua.concat("<object ", LObj(mtable.__name__), " at ", LObj(id(self)),">"))
 
 global type
 @setup_base_class
@@ -495,7 +518,7 @@ class type(object):
         return instance
 
     def __repr__(cls):
-        return str(lua.concat("<class '", cls.__name__, "'>"))
+        return str(lua.concat("<class '", LObj(cls.__name__), "'>"))
 
     def mro(cls):
         return cls.__mro__
@@ -517,13 +540,38 @@ setmetatable(ptype, ptype)
 
 @setup_basic_class
 class BaseException(object):
+    args = nil
+
     def __new__(cls, *args):
+        param = tuple(args)
         instance = object.__new__(cls)
-        instance.args = args
-        _OP__Init__(instance, *args)
+        rawset(instance, "args", param)
+        _OP__Init__(instance, param)
+        return instance
+
+    def __str__(self):
+        length = LObj(len(self.args))
+        if length == 0:
+            return str("")
+        elif length == 1:
+            return str(_OP__Getitem__(self.args, int(0)))
 
     def __repr__(self):
-        pass
+        excname = LObj(type(self).__name__)
+        return lua.concat(excname, repr(self.args))
+
+    def __lua__(self):
+        excname = LObj(type(self).__name__)
+        value = str(self)
+
+        if LObj(len(value)) > 0:
+            return lua.concat(excname, ": ", LObj(value))
+        else:
+            return lua.concat(excname)
+
+@setup_basic_class
+class Exception(BaseException):
+    pass
 
 @setup_basic_class
 class BuiltinConstType(object):
@@ -563,6 +611,7 @@ class NoneType(BuiltinConstType):
         return str("None")
 
 @setup_basic_class
+@setup_hide_class
 class LuaObject(object):
     # This is hidden, and core of calc.
     LuaObject = true
@@ -571,7 +620,7 @@ class LuaObject(object):
     def __init__(self, obj):
         mtable = getmetatable(obj)
         if mtable and rawget(mtable, "LuaObject"):
-            obj = to_luaobj(obj)
+            obj = LObj(obj)
 
         ObjValue[self] = obj
 
@@ -585,6 +634,7 @@ class LuaObject(object):
         return ObjValue[self]
 
 @setup_basic_class
+@setup_hide_class
 class LuaValueOnlySequance(LuaObject):
     def __init__(self, value):
         if is_pyobj(value):
@@ -610,7 +660,7 @@ class LuaValueOnlySequance(LuaObject):
         ret[idx] = s; idx += 1
         for k,v in pairs(ObjValue[self]):
             ret[idx] = sep; idx += 1
-            ret[idx] = to_luaobj(repr(v)); idx += 1
+            ret[idx] = LObj(repr(v)); idx += 1
             sep = ", "
 
         ret[idx] = e; idx += 1
@@ -635,13 +685,23 @@ class tuple(LuaValueOnlySequance):
     def __setattr__(self, key, value):
         error("Not allowed")
 
+    def __len__(self):
+        return int(lua.len(ObjValue[self]))
+
+    def __getitem__(self, x):
+        assert is_pyobj(x)
+        if isinstance(x, int):
+            return ObjValue[self][LObj(x) + 1]
+
+        error("Not support unknown type.")
+
 global str
 @setup_basic_class
 class str(LuaObject):
     def __init__(self, value):
         if is_pyobj(value):
             value = _OP__Str__(value)
-            value = to_luaobj(value)
+            value = LObj(value)
 
         ObjValue[self] = value
 
@@ -651,12 +711,8 @@ class str(LuaObject):
     def __repr__(self):
         return str(lua.concat("'", ObjValue[self], "'"))
 
-def make_bool(value):
-    instance = {"value": value}
-    register_pyobj(instance)
-    setmetatable(instance, bool)
-
-    return instance
+    def __len__(self):
+        return int(lua.len(ObjValue[self]))
 
 global bool
 @setup_basic_class
@@ -704,16 +760,11 @@ class dict(LuaObject):
 
 ## inital Code
 def inital():
-    register_builtins_class(object)
-    register_builtins_class(NotImplementedType, object)
-    register_builtins_class(EllipsisType, object)
-    register_builtins_class(NoneType, object)
-    register_builtins_class(type, object)
-    register_builtins_class(list, object)
-    register_builtins_class(tuple, object)
-    register_builtins_class(str, object)
-    register_builtins_class(int, object)
-    register_builtins_class(dict, object)
+    # register_builtins_class do support object class register. (no parent)
+    for cls, value in pairs(IsBuiltinTypes):
+        assert value is false
+        register_builtins_class(cls)
+
     _M["NotImplemented"] = NotImplementedType()
     _M["Ellipsis"] = EllipsisType()
     _M["None"] = NoneType()
@@ -727,11 +778,6 @@ inited = inital()
 
 ##
 
-def table_len(x):
-    count = 0
-    for k, v in pairs(x): count += 1
-    return count
-
 x = list({int(1), int(2), int(3)})
 y = int(5)
 z = int(7)
@@ -742,3 +788,4 @@ print(True)
 print(issubclass(int, object))
 print(int.mro())
 print(_OP__Add__(y, z))
+error(Exception(str("test")))

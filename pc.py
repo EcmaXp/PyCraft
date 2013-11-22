@@ -1311,7 +1311,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         result = "(function(%s) return " % args
         with self.noblock():
             result += self.visit(node.body)
-        result += " end)"
+        result += "; end)"
 
         return result
 
@@ -1370,7 +1370,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
                 print("    for k,v in pairs(c) do o[k]=v end")
                 print("  end")
-                print("end)(getfenv());")
+                print("end)(getfenv())", end=";\n")
+                # TODO: __bases__ are enable by special function?
+                print("__bases__ = {%s}" % ", ".join(bases), end=";\n")
 
             print("__name__", "=", repr(name), end=";\n")
 
@@ -1524,7 +1526,7 @@ def execute_lite(filename, fromfile=None):
             else:
                 tb = tbline.partition(": ")[2]
                 tb, sep, detail = tb.partition(": ")
-                assert sep
+                assert sep, (tb, sep, detail)
                 parse_tb(tb, ignore_realno=True)
                 filename, sep, lineno = tb.partition(":")
                 lineno = int(lineno)
