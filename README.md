@@ -5,6 +5,8 @@ Python Code to Lua. For ComputerCraft
 
 Progess 64%
 
+Any helper can help me. Open issue with support this.
+
 ## Goal
 * We don't need and mod but need one lua api and this program.
 * We can run translated-python-code on computercraft's computer.
