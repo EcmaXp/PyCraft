@@ -1522,7 +1522,7 @@ def execute_lite(filename, fromfile=None):
                 tb = tbline.partition(": ")[2]
                 tb, sep, detail = tb.partition(": ")
                 parse_tb(tb)
-                print("Exception: " + detail)
+                print("LuaException: " + detail)
             else:
                 tb = tbline.partition(": ")[2]
                 tb, sep, detail = tb.partition(": ")

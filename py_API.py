@@ -6,6 +6,7 @@ global lua
 lua = {}
 lua.len = lambda obj: LUA_CODE("#obj")
 lua.concat = lambda *args: table.concat(args)
+lua.write = write or io.write
 for key, value in pairs(_G):
     lua[key] = value
 
@@ -16,14 +17,14 @@ TAG = "[PY]"
 ObjLastID = 0
 inited = False
 
-__PCEX__ = "__PCEX__"
 builtins = "builtins"
 
 ## This table are weaktable.
 ObjID = setmetatable({}, {"__mode":"k"})
 ObjValue = setmetatable({}, {"__mode":"k"})
+ObjPCEX = setmetatable({}, {"__mode":"k"})
 Obj_FromID = setmetatable({}, {"__mode":"v"})
-IsBuiltinTypes = setmetatable({}, {"__mode":"k"})
+BuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## must cleaned after collectgarbage()
 
 builtin_methods = __PC_ECMAXP_GET_OBJECT_ATTRS()
@@ -104,16 +105,14 @@ def is_float(num):
     return math.floor(num) != num
 
 def setup_base_class(cls):
-    rawset(cls, __PCEX__, nil)
-
     pcex = {}
     for k, v in pairs(cls):
         idx = builtin_methods_rev[k]
         if idx is not nil:
             pcex[idx] = v
 
-    rawset(cls, __PCEX__, pcex)
-    IsBuiltinTypes[cls] = false
+    ObjPCEX[cls] = pcex
+    BuiltinTypes[cls] = false
     register_pyobj(cls)
 
     return cls
@@ -125,7 +124,7 @@ def setup_basic_class(cls):
     return cls
 
 def setup_hide_class(cls):
-    IsBuiltinTypes[cls] = nil
+    BuiltinTypes[cls] = nil
     return cls
 
 def register_builtins_class(cls):
@@ -137,7 +136,7 @@ def register_builtins_class(cls):
         LUA_CODE("for i = #bases, 1, -1 do --")
         if true:
             base = bases[i]
-            if IsBuiltinTypes[base] is not nil:
+            if BuiltinTypes[base] is not nil:
                 mro[idx] = base
                 idx += 1
         LUA_CODE("end")
@@ -154,7 +153,7 @@ def register_builtins_class(cls):
     rawset(cls, "__module__", str("builtins"))
     rawset(cls, "__mro__", tuple(mro))
 
-    IsBuiltinTypes[cls] = true
+    BuiltinTypes[cls] = true
     return cls
 
 def Fail_OP(a, ax):
@@ -184,7 +183,7 @@ def Fail_OP_Math_Pow(a, b, ax, c):
 def OP_Call(ax):
     def func(a, *args):
         assert require_pyobj(a)
-        f = rawget(getmetatable(a), __PCEX__)[ax]
+        f = ObjPCEX[getmetatable(a)][ax]
         if f:
             return f(a, *args)
 
@@ -194,8 +193,8 @@ def OP_Call(ax):
 def OP_Math2(ax, bx):
     def func(a, b):
         assert require_pyobj(a, b)
-        am = rawget(getmetatable(a), __PCEX__)
-        bm = rawget(getmetatable(b), __PCEX__)
+        am = ObjPCEX[getmetatable(a)]
+        bm = ObjPCEX[getmetatable(b)]
 
         f = am[ax]
         if f:
@@ -214,8 +213,8 @@ def OP_Math2(ax, bx):
 def OP_Math3(cx, ax, bx): # cx is first.
     def func(a, b):
         assert require_pyobj(a, b)
-        am = rawget(getmetatable(a), __PCEX__)
-        bm = rawget(getmetatable(b), __PCEX__)
+        am = ObjPCEX[getmetatable(a)]
+        bm = ObjPCEX[getmetatable(b)]
         is_n = isinstance(a, int) == True or isinstance(b, float) == True
 
         if is_n:
@@ -249,8 +248,8 @@ def OP_Math2_Pow(ax, bx):
     def func(a, b, c):
         assert require_pyobj(a, b)
         assert require_pyobj(c) or c is nil
-        am = rawget(getmetatable(a), __PCEX__)
-        bm = rawget(getmetatable(b), __PCEX__)
+        am = ObjPCEX[getmetatable(a)]
+        bm = ObjPCEX[getmetatable(b)]
 
         f = am[ax]
         if f:
@@ -275,8 +274,8 @@ def OP_Math3_Pow(cx, ax, bx):
     def func(a, b, c):
         assert require_pyobj(a, b)
         assert require_pyobj(c) or c is nil
-        am = rawget(getmetatable(a), __PCEX__)
-        bm = rawget(getmetatable(b), __PCEX__)
+        am = ObjPCEX[getmetatable(a)]
+        bm = ObjPCEX[getmetatable(b)]
 
         f = am[cx]
         if f:
@@ -395,8 +394,8 @@ def repr(obj):
         return lua.concat(LUA_OBJ_TAG, "(", tostring(obj), ")")
 
 def print(*args):
-    write = lua.io.write
-    sep = " "
+    arr = []
+    idx = 1
 
     for _, arg in pairs(args):
         if is_pyobj(arg):
@@ -405,10 +404,13 @@ def print(*args):
             arg = repr(arg)
 
         arg = LObj(arg)
-        write(arg)
-        write(sep)
 
-    write("\n")
+        arr[idx] = arg
+        idx += 1
+
+    data = table.concat(arr, " ")
+    data = lua.concat(data, "\n")
+    lua.write(data)
 
 def isinstance(obj, targets):
     require_pyobj(obj)
@@ -495,7 +497,7 @@ class object():
         error(lua.concat("Not found '", k, "' attribute."))
 
     def __setattr__(self, key, value):
-        if IsBuiltinTypes[type(self)] and inited:
+        if BuiltinTypes[type(self)] and inited:
             error("TypeError: can't set attributes of built-in/extension type 'object'")
 
         # TODO: Add PCEX Support!
@@ -540,6 +542,9 @@ setmetatable(ptype, ptype)
 
 @setup_basic_class
 class BaseException(object):
+    # TODO: Support with sys.last_value
+
+    # IDE Hint.
     args = nil
 
     def __new__(cls, *args):
@@ -759,11 +764,13 @@ class dict(LuaObject):
     pass
 
 ## inital Code
-def inital():
+def init_Lython():
     # register_builtins_class do support object class register. (no parent)
-    for cls, value in pairs(IsBuiltinTypes):
-        assert value is false
+    for cls, inited in pairs(BuiltinTypes):
+        assert inited is false
         register_builtins_class(cls)
+        inited = BuiltinTypes[cls]
+        assert inited is true
 
     _M["NotImplemented"] = NotImplementedType()
     _M["Ellipsis"] = EllipsisType()
@@ -773,11 +780,10 @@ def inital():
 
     return true
 
-inited = inital()
+inited = init_Lython()
 ##
 
-##
-
+## test code are here!
 x = list({int(1), int(2), int(3)})
 y = int(5)
 z = int(7)
@@ -788,4 +794,4 @@ print(True)
 print(issubclass(int, object))
 print(int.mro())
 print(_OP__Add__(y, z))
-error(Exception(str("test")))
+error(Exception(str("Unstable World!")))
