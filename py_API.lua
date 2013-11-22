@@ -134,20 +134,20 @@ end;
 local function register_builtins_class(cls)
   local idx = 1; -- [LINE 131]
   local mro = {}; -- [LINE 132]
-  local bases = rawget(cls, '__bases__'); -- [LINE 134]
-  if bases ~= nil then -- [LINE 135]
-    for i = #bases, 1, -1 do --; -- [LINE 136]
-    if true then -- [LINE 137]
-      local base = bases[i]; -- [LINE 138]
-      if BuiltinTypes[base] ~= nil then -- [LINE 139]
-        mro[idx] = base; -- [LINE 140]
-        idx = (idx + 1); -- [LINE 141]
+  mro[idx] = cls; -- [LINE 134]
+  idx = (idx + 1); -- [LINE 135]
+  local bases = rawget(cls, '__bases__'); -- [LINE 137]
+  if bases ~= nil then -- [LINE 138]
+    for i = #bases, 1, -1 do --; -- [LINE 139]
+    if true then -- [LINE 140]
+      local base = bases[i]; -- [LINE 141]
+      if BuiltinTypes[base] ~= nil then -- [LINE 142]
+        mro[idx] = base; -- [LINE 143]
+        idx = (idx + 1); -- [LINE 144]
       end;
     end;
-    end; -- [LINE 142]
+    end; -- [LINE 145]
   end;
-  mro[idx] = cls; -- [LINE 144]
-  idx = (idx + 1); -- [LINE 145]
   if cls ~= object then -- [LINE 147]
     mro[idx] = object; -- [LINE 148]
     idx = (idx + 1); -- [LINE 149]
@@ -429,7 +429,7 @@ function isinstance(obj, targets)
   require_pyobj(obj); -- [LINE 416]
   local cls = type(obj); -- [LINE 418]
   local mro = cls.mro(); -- [LINE 419]
-  assert(type(mro) == tuple); -- [LINE 420]
+  assert(type(mro) == list); -- [LINE 420]
   local _, supercls;
   for _, supercls in pairs(ObjValue[mro]) do -- [LINE 422]
     require_pyobj(supercls); -- [LINE 423]
@@ -445,7 +445,7 @@ function issubclass(cls, targets)
     error('issubclass() arg 1 must be a class'); -- [LINE 433]
   end;
   local mro = cls.mro(); -- [LINE 435]
-  assert(type(mro) == tuple); -- [LINE 436]
+  assert(type(mro) == list); -- [LINE 436]
   local _, supercls;
   for _, supercls in pairs(ObjValue[mro]) do -- [LINE 438]
     require_pyobj(supercls); -- [LINE 439]
@@ -555,7 +555,7 @@ type = (function(_G) -- (class type:object)
   end;
   setfenv(__repr__, _G);
   function mro(cls)
-    return cls.__mro__; -- [LINE 526]
+    return list(ObjValue[cls.__mro__]); -- [LINE 526]
   end;
   setfenv(mro, _G);
   return getfenv();
@@ -596,37 +596,37 @@ local BaseException = (function(_G) -- (class BaseException:object)
   end)(getfenv());
   __bases__ = {object};
   __name__ = 'BaseException';
-  args = nil; -- [LINE 548]
+  args = nil; -- [LINE 547]
   function __new__(cls, ...)
     local args = {...};
-    local param = tuple(args); -- [LINE 551]
-    local instance = object.__new__(cls); -- [LINE 552]
-    rawset(instance, 'args', param); -- [LINE 553]
-    _OP__Init__(instance, param); -- [LINE 554]
-    return instance; -- [LINE 555]
+    local param = tuple(args); -- [LINE 550]
+    local instance = object.__new__(cls); -- [LINE 551]
+    rawset(instance, 'args', param); -- [LINE 552]
+    _OP__Init__(instance, param); -- [LINE 553]
+    return instance; -- [LINE 554]
   end;
   setfenv(__new__, _G);
   function __str__(self)
-    local length = LObj(len(self.args)); -- [LINE 558]
-    if length == 0 then -- [LINE 559]
-      return str(''); -- [LINE 560]
-    elseif length == 1 then -- [LINE 561]
-      return str(_OP__Getitem__(self.args, int(0))); -- [LINE 562]
+    local length = LObj(len(self.args)); -- [LINE 557]
+    if length == 0 then -- [LINE 558]
+      return str(''); -- [LINE 559]
+    elseif length == 1 then -- [LINE 560]
+      return str(_OP__Getitem__(self.args, int(0))); -- [LINE 561]
     end;
   end;
   setfenv(__str__, _G);
   function __repr__(self)
-    local excname = LObj(type(self).__name__); -- [LINE 565]
-    return lua.concat(excname, repr(self.args)); -- [LINE 566]
+    local excname = LObj(type(self).__name__); -- [LINE 564]
+    return lua.concat(excname, repr(self.args)); -- [LINE 565]
   end;
   setfenv(__repr__, _G);
   function __lua__(self)
-    local excname = LObj(type(self).__name__); -- [LINE 569]
-    local value = str(self); -- [LINE 570]
-    if LObj(len(value)) > 0 then -- [LINE 572]
-      return lua.concat(excname, ': ', LObj(value)); -- [LINE 573]
+    local excname = LObj(type(self).__name__); -- [LINE 568]
+    local value = str(self); -- [LINE 569]
+    if LObj(len(value)) > 0 then -- [LINE 571]
+      return lua.concat(excname, ': ', LObj(value)); -- [LINE 572]
     else
-      return lua.concat(excname); -- [LINE 575]
+      return lua.concat(excname); -- [LINE 574]
     end;
   end;
   setfenv(__lua__, _G);
@@ -645,6 +645,18 @@ local Exception = (function(_G) -- (class Exception:BaseException)
   return getfenv();
 end)(getfenv());
 Exception = setup_basic_class(Exception);
+local UnstableException = (function(_G) -- (class UnstableException:Exception, BaseException)
+  setfenv(1, setmetatable({}, {_G=_G,__index=_G}));
+  (function(o,c,k,v)
+    for k,c in pairs({BaseException, Exception}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(getfenv());
+  __bases__ = {Exception, BaseException};
+  __name__ = 'UnstableException';
+  return getfenv();
+end)(getfenv());
+UnstableException = setup_basic_class(UnstableException);
 local BuiltinConstType = (function(_G) -- (class BuiltinConstType:object)
   setfenv(1, setmetatable({}, {_G=_G,__index=_G}));
   (function(o,c,k,v)
@@ -656,16 +668,16 @@ local BuiltinConstType = (function(_G) -- (class BuiltinConstType:object)
   __name__ = 'BuiltinConstType';
   function __new__(cls, ...)
     local args = {...};
-    if not inited then -- [LINE 584]
-      local instance = object.__new__(cls, ...); -- [LINE 585]
-      _OP__Init__(instance, ...); -- [LINE 586]
-      return instance; -- [LINE 587]
+    if not inited then -- [LINE 587]
+      local instance = object.__new__(cls, ...); -- [LINE 588]
+      _OP__Init__(instance, ...); -- [LINE 589]
+      return instance; -- [LINE 590]
     end;
-    return cls._get_singleton(); -- [LINE 589]
+    return cls._get_singleton(); -- [LINE 592]
   end;
   setfenv(__new__, _G);
   function _get_singleton(cls)
-    error('Not defined.'); -- [LINE 592]
+    error('Not defined.'); -- [LINE 595]
   end;
   setfenv(_get_singleton, _G);
   return getfenv();
@@ -681,11 +693,11 @@ local NotImplementedType = (function(_G) -- (class NotImplementedType:BuiltinCon
   __bases__ = {BuiltinConstType};
   __name__ = 'NotImplementedType';
   function _get_singleton(cls)
-    return NotImplemented; -- [LINE 597]
+    return NotImplemented; -- [LINE 600]
   end;
   setfenv(_get_singleton, _G);
   function __repr__(self)
-    return str('NotImplemented'); -- [LINE 600]
+    return str('NotImplemented'); -- [LINE 603]
   end;
   setfenv(__repr__, _G);
   return getfenv();
@@ -701,11 +713,11 @@ local EllipsisType = (function(_G) -- (class EllipsisType:BuiltinConstType)
   __bases__ = {BuiltinConstType};
   __name__ = 'EllipsisType';
   function _get_singleton(self)
-    return Ellipsis; -- [LINE 605]
+    return Ellipsis; -- [LINE 608]
   end;
   setfenv(_get_singleton, _G);
   function __repr__(self)
-    return str('Ellipsis'); -- [LINE 608]
+    return str('Ellipsis'); -- [LINE 611]
   end;
   setfenv(__repr__, _G);
   return getfenv();
@@ -721,11 +733,11 @@ local NoneType = (function(_G) -- (class NoneType:BuiltinConstType)
   __bases__ = {BuiltinConstType};
   __name__ = 'NoneType';
   function _get_singleton(cls)
-    return None; -- [LINE 613]
+    return None; -- [LINE 616]
   end;
   setfenv(_get_singleton, _G);
   function __repr__(self)
-    return str('None'); -- [LINE 616]
+    return str('None'); -- [LINE 619]
   end;
   setfenv(__repr__, _G);
   return getfenv();
@@ -740,25 +752,25 @@ local LuaObject = (function(_G) -- (class LuaObject:object)
   end)(getfenv());
   __bases__ = {object};
   __name__ = 'LuaObject';
-  LuaObject = true; -- [LINE 622]
+  LuaObject = true; -- [LINE 625]
   function __init__(self, obj)
-    local mtable = getmetatable(obj); -- [LINE 626]
-    if mtable and rawget(mtable, 'LuaObject') then -- [LINE 627]
-      obj = LObj(obj); -- [LINE 628]
+    local mtable = getmetatable(obj); -- [LINE 629]
+    if mtable and rawget(mtable, 'LuaObject') then -- [LINE 630]
+      obj = LObj(obj); -- [LINE 631]
     end;
-    ObjValue[self] = obj; -- [LINE 630]
+    ObjValue[self] = obj; -- [LINE 633]
   end;
   setfenv(__init__, _G);
   function __str__(self)
-    return str(_OP__Repr__(self)); -- [LINE 633]
+    return str(_OP__Repr__(self)); -- [LINE 636]
   end;
   setfenv(__str__, _G);
   function __repr__(self)
-    return str(tostring(ObjValue[self])); -- [LINE 636]
+    return str(tostring(ObjValue[self])); -- [LINE 639]
   end;
   setfenv(__repr__, _G);
   function __lua__(self)
-    return ObjValue[self]; -- [LINE 639]
+    return ObjValue[self]; -- [LINE 642]
   end;
   setfenv(__lua__, _G);
   return getfenv();
@@ -775,40 +787,40 @@ local LuaValueOnlySequance = (function(_G) -- (class LuaValueOnlySequance:LuaObj
   __bases__ = {LuaObject};
   __name__ = 'LuaValueOnlySequance';
   function __init__(self, value)
-    if is_pyobj(value) then -- [LINE 645]
-      self.check_type(value); -- [LINE 646]
+    if is_pyobj(value) then -- [LINE 648]
+      self.check_type(value); -- [LINE 649]
     end;
-    ObjValue[self] = value; -- [LINE 648]
+    ObjValue[self] = value; -- [LINE 651]
   end;
   setfenv(__init__, _G);
   function check_type(self, value)
-    if type(value) == 'table' then -- [LINE 651]
-    elseif value[lua.len(value)] == nil then -- [LINE 652]
-    elseif value[1] == nil then -- [LINE 653]
-    elseif value[0] ~= nil then -- [LINE 654]
+    if type(value) == 'table' then -- [LINE 654]
+    elseif value[lua.len(value)] == nil then -- [LINE 655]
+    elseif value[1] == nil then -- [LINE 656]
+    elseif value[0] ~= nil then -- [LINE 657]
     else
-      return true; -- [LINE 656]
+      return true; -- [LINE 659]
     end;
-    return false; -- [LINE 658]
+    return false; -- [LINE 661]
   end;
   setfenv(check_type, _G);
   function make_repr(self, s, e)
-    local ret = {}; -- [LINE 661]
-    local idx = 1; -- [LINE 662]
-    local sep = ''; -- [LINE 664]
-    ret[idx] = s; -- [LINE 665]
-    idx = (idx + 1); -- [LINE 665]
+    local ret = {}; -- [LINE 664]
+    local idx = 1; -- [LINE 665]
+    local sep = ''; -- [LINE 667]
+    ret[idx] = s; -- [LINE 668]
+    idx = (idx + 1); -- [LINE 668]
     local k, v;
-    for k, v in pairs(ObjValue[self]) do -- [LINE 666]
-      ret[idx] = sep; -- [LINE 667]
-      idx = (idx + 1); -- [LINE 667]
-      ret[idx] = LObj(repr(v)); -- [LINE 668]
-      idx = (idx + 1); -- [LINE 668]
-      sep = ', '; -- [LINE 669]
+    for k, v in pairs(ObjValue[self]) do -- [LINE 669]
+      ret[idx] = sep; -- [LINE 670]
+      idx = (idx + 1); -- [LINE 670]
+      ret[idx] = LObj(repr(v)); -- [LINE 671]
+      idx = (idx + 1); -- [LINE 671]
+      sep = ', '; -- [LINE 672]
     end;
-    ret[idx] = e; -- [LINE 671]
-    idx = (idx + 1); -- [LINE 671]
-    return table.concat(ret); -- [LINE 673]
+    ret[idx] = e; -- [LINE 674]
+    idx = (idx + 1); -- [LINE 674]
+    return table.concat(ret); -- [LINE 676]
   end;
   setfenv(make_repr, _G);
   return getfenv();
@@ -825,11 +837,11 @@ list = (function(_G) -- (class list:LuaValueOnlySequance)
   __bases__ = {LuaValueOnlySequance};
   __name__ = 'list';
   function __repr__(self)
-    return self.make_repr('[', ']'); -- [LINE 679]
+    return self.make_repr('[', ']'); -- [LINE 682]
   end;
   setfenv(__repr__, _G);
   function __setattr__(self, key, value)
-    error('Not allowed'); -- [LINE 682]
+    error('Not allowed'); -- [LINE 685]
   end;
   setfenv(__setattr__, _G);
   return getfenv();
@@ -845,23 +857,23 @@ tuple = (function(_G) -- (class tuple:LuaValueOnlySequance)
   __bases__ = {LuaValueOnlySequance};
   __name__ = 'tuple';
   function __repr__(self)
-    return self.make_repr('(', ')'); -- [LINE 688]
+    return self.make_repr('(', ')'); -- [LINE 691]
   end;
   setfenv(__repr__, _G);
   function __setattr__(self, key, value)
-    error('Not allowed'); -- [LINE 691]
+    error('Not allowed'); -- [LINE 694]
   end;
   setfenv(__setattr__, _G);
   function __len__(self)
-    return int(lua.len(ObjValue[self])); -- [LINE 694]
+    return int(lua.len(ObjValue[self])); -- [LINE 697]
   end;
   setfenv(__len__, _G);
   function __getitem__(self, x)
-    assert(is_pyobj(x)); -- [LINE 697]
-    if isinstance(x, int) then -- [LINE 698]
-      return ObjValue[self][(LObj(x) + 1)]; -- [LINE 699]
+    assert(is_pyobj(x)); -- [LINE 700]
+    if isinstance(x, int) then -- [LINE 701]
+      return ObjValue[self][(LObj(x) + 1)]; -- [LINE 702]
     end;
-    error('Not support unknown type.'); -- [LINE 701]
+    error('Not support unknown type.'); -- [LINE 704]
   end;
   setfenv(__getitem__, _G);
   return getfenv();
@@ -877,23 +889,23 @@ str = (function(_G) -- (class str:LuaObject)
   __bases__ = {LuaObject};
   __name__ = 'str';
   function __init__(self, value)
-    if is_pyobj(value) then -- [LINE 707]
-      value = _OP__Str__(value); -- [LINE 708]
-      value = LObj(value); -- [LINE 709]
+    if is_pyobj(value) then -- [LINE 710]
+      value = _OP__Str__(value); -- [LINE 711]
+      value = LObj(value); -- [LINE 712]
     end;
-    ObjValue[self] = value; -- [LINE 711]
+    ObjValue[self] = value; -- [LINE 714]
   end;
   setfenv(__init__, _G);
   function __str__(self)
-    return self; -- [LINE 714]
+    return self; -- [LINE 717]
   end;
   setfenv(__str__, _G);
   function __repr__(self)
-    return str(lua.concat("'", ObjValue[self], "'")); -- [LINE 717]
+    return str(lua.concat("'", ObjValue[self], "'")); -- [LINE 720]
   end;
   setfenv(__repr__, _G);
   function __len__(self)
-    return int(lua.len(ObjValue[self])); -- [LINE 720]
+    return int(lua.len(ObjValue[self])); -- [LINE 723]
   end;
   setfenv(__len__, _G);
   return getfenv();
@@ -909,32 +921,32 @@ bool = (function(_G) -- (class bool:LuaObject)
   __bases__ = {LuaObject};
   __name__ = 'bool';
   function __new__(cls, value)
-    if not inited then -- [LINE 726]
-      local instance = object.__new__(cls); -- [LINE 727]
-      ObjValue[instance] = value; -- [LINE 728]
-      return instance; -- [LINE 729]
+    if not inited then -- [LINE 729]
+      local instance = object.__new__(cls); -- [LINE 730]
+      ObjValue[instance] = value; -- [LINE 731]
+      return instance; -- [LINE 732]
     end;
-    if is_pyobj(value) then -- [LINE 731]
-      value = _OP__Bool__(value); -- [LINE 732]
+    if is_pyobj(value) then -- [LINE 734]
+      value = _OP__Bool__(value); -- [LINE 735]
     else
-      value = value and true or false; -- [LINE 735]
+      value = value and true or false; -- [LINE 738]
     end;
-    if value == true then -- [LINE 737]
-      return True; -- [LINE 738]
-    elseif value == false then -- [LINE 739]
-      return False; -- [LINE 740]
-    elseif is_pyobj(value) and type(value) == bool then -- [LINE 741]
-      return value; -- [LINE 742]
+    if value == true then -- [LINE 740]
+      return True; -- [LINE 741]
+    elseif value == false then -- [LINE 742]
+      return False; -- [LINE 743]
+    elseif is_pyobj(value) and type(value) == bool then -- [LINE 744]
+      return value; -- [LINE 745]
     end;
-    error('__Bool__ are returned unknown value.'); -- [LINE 744]
+    error('__Bool__ are returned unknown value.'); -- [LINE 747]
   end;
   setfenv(__new__, _G);
   function __repr__(self)
-    local value = ObjValue[self]; -- [LINE 747]
-    if value == true then -- [LINE 748]
-      return str('True'); -- [LINE 749]
-    elseif value == false then -- [LINE 750]
-      return str('False'); -- [LINE 751]
+    local value = ObjValue[self]; -- [LINE 750]
+    if value == true then -- [LINE 751]
+      return str('True'); -- [LINE 752]
+    elseif value == false then -- [LINE 753]
+      return str('False'); -- [LINE 754]
     end;
   end;
   setfenv(__repr__, _G);
@@ -951,7 +963,7 @@ int = (function(_G) -- (class int:LuaObject)
   __bases__ = {LuaObject};
   __name__ = 'int';
   function __add__(self, other)
-    return int((ObjValue[self] + ObjValue[other])); -- [LINE 759]
+    return int((ObjValue[self] + ObjValue[other])); -- [LINE 762]
   end;
   setfenv(__add__, _G);
   return getfenv();
@@ -969,29 +981,30 @@ dict = (function(_G) -- (class dict:LuaObject)
   return getfenv();
 end)(getfenv());
 dict = setup_basic_class(dict);
-local function init_Lython()
+local function inital()
   local cls, inited;
-  for cls, inited in pairs(BuiltinTypes) do -- [LINE 769]
-    assert(inited == false); -- [LINE 770]
-    register_builtins_class(cls); -- [LINE 771]
-    inited = BuiltinTypes[cls]; -- [LINE 772]
-    assert(inited == true); -- [LINE 773]
+  for cls, inited in pairs(BuiltinTypes) do -- [LINE 771]
+    assert(inited == false); -- [LINE 772]
+    register_builtins_class(cls); -- [LINE 773]
+    inited = BuiltinTypes[cls]; -- [LINE 774]
+    assert(inited == true); -- [LINE 775]
   end;
-  _M['NotImplemented'] = NotImplementedType(); -- [LINE 775]
-  _M['Ellipsis'] = EllipsisType(); -- [LINE 776]
-  _M['None'] = NoneType(); -- [LINE 777]
-  _M['True'] = bool(true); -- [LINE 778]
-  _M['False'] = bool(false); -- [LINE 779]
-  return true; -- [LINE 781]
+  _M['NotImplemented'] = NotImplementedType(); -- [LINE 777]
+  _M['Ellipsis'] = EllipsisType(); -- [LINE 778]
+  _M['None'] = NoneType(); -- [LINE 779]
+  _M['True'] = bool(true); -- [LINE 780]
+  _M['False'] = bool(false); -- [LINE 781]
+  return true; -- [LINE 783]
 end;
-inited = init_Lython(); -- [LINE 783]
-local x = list({int(1), int(2), int(3)}); -- [LINE 787]
-local y = int(5); -- [LINE 788]
-local z = int(7); -- [LINE 789]
-print(x); -- [LINE 791]
-print(True == nil); -- [LINE 792]
-print(True); -- [LINE 793]
-print(issubclass(int, object)); -- [LINE 794]
-print(int.mro()); -- [LINE 795]
-print(_OP__Add__(y, z)); -- [LINE 796]
-error(Exception(str('Unstable World!'))); -- [LINE 797]
+inited = inital(); -- [LINE 785]
+local x = list({int(1), int(2), int(3)}); -- [LINE 789]
+local y = int(5); -- [LINE 790]
+local z = int(7); -- [LINE 791]
+print(x); -- [LINE 793]
+print(True == nil); -- [LINE 794]
+print(True); -- [LINE 795]
+print(issubclass(int, object)); -- [LINE 796]
+print(int.mro()); -- [LINE 797]
+print(_OP__Add__(y, z)); -- [LINE 798]
+print(UnstableException.mro()); -- [LINE 799]
+error(UnstableException(str('Unstable World!'))); -- [LINE 800]

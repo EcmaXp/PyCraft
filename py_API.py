@@ -131,6 +131,9 @@ def register_builtins_class(cls):
     idx = 1
     mro = {}
 
+    mro[idx] = cls
+    idx += 1
+
     bases = rawget(cls, "__bases__")
     if bases is not nil:
         LUA_CODE("for i = #bases, 1, -1 do --")
@@ -140,9 +143,6 @@ def register_builtins_class(cls):
                 mro[idx] = base
                 idx += 1
         LUA_CODE("end")
-
-    mro[idx] = cls
-    idx += 1
 
     if cls != object:
         mro[idx] = object
@@ -417,7 +417,7 @@ def isinstance(obj, targets):
 
     cls = type(obj)
     mro = cls.mro()
-    assert type(mro) == tuple
+    assert type(mro) == list
 
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
@@ -433,7 +433,7 @@ def issubclass(cls, targets):
         error("issubclass() arg 1 must be a class")
 
     mro = cls.mro()
-    assert type(mro) == tuple
+    assert type(mro) == list
 
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
@@ -523,7 +523,7 @@ class type(object):
         return str(lua.concat("<class '", LObj(cls.__name__), "'>"))
 
     def mro(cls):
-        return cls.__mro__
+        return list(ObjValue[cls.__mro__]) # TODO: list(cls.__mro__) direct!
 
 @setup_base_class
 class ptype(type):
@@ -544,7 +544,6 @@ setmetatable(ptype, ptype)
 class BaseException(object):
     # TODO: Support with sys.last_value
 
-    # IDE Hint.
     args = nil
 
     def __new__(cls, *args):
@@ -576,6 +575,10 @@ class BaseException(object):
 
 @setup_basic_class
 class Exception(BaseException):
+    pass
+
+@setup_basic_class
+class UnstableException(Exception, BaseException):
     pass
 
 @setup_basic_class
@@ -764,8 +767,7 @@ class dict(LuaObject):
     pass
 
 ## inital Code
-def init_Lython():
-    # register_builtins_class do support object class register. (no parent)
+def inital():
     for cls, inited in pairs(BuiltinTypes):
         assert inited is false
         register_builtins_class(cls)
@@ -780,7 +782,7 @@ def init_Lython():
 
     return true
 
-inited = init_Lython()
+inited = inital()
 ##
 
 ## test code are here!
@@ -794,4 +796,5 @@ print(True)
 print(issubclass(int, object))
 print(int.mro())
 print(_OP__Add__(y, z))
-error(Exception(str("Unstable World!")))
+print(UnstableException.mro())
+error(UnstableException(str("Unstable World!")))
