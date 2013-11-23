@@ -1,8 +1,16 @@
 if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
 __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
-_M = setmetatable({"_G":_G}, {"__index":_G})
-setfenv(1, _M)
+global _M # Already _M is local thing. :$
+
+if not getmetatable(_M) or _G == _M:
+    # This Logic are support
+    #  - run at pure lua
+    #  - run at cc's shell (with no change environ)
+    #  - run by loadAPI (with export environ)
+
+    _M = setmetatable({"_G":_G}, {"__index":_G})
+    setfenv(1, _M)
 
 global lua
 lua = {}
@@ -774,7 +782,7 @@ class dict(LuaObject):
 
 ## inital Code
 def inital():
-    for cls, cinit in pairs(InitalBuiltinTypes):
+    for cls, _ in pairs(InitalBuiltinTypes):
         register_builtins_class(cls)
         BuiltinTypes[cls] = true
 
@@ -790,15 +798,4 @@ inited = inital()
 ##
 
 ## test code are here!
-x = list({int(1), int(2), int(3)})
-y = int(5)
-z = int(7)
-
-print(x)
-print(True is nil)
-print(True)
-print(issubclass(int, object))
-print(int.mro())
-print(_OP__Add__(y, z))
-print(UnstableException.mro())
-error(UnstableException(str("Unstable World!")))
+print(str("Hello world!"))
