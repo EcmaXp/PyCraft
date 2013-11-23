@@ -1168,11 +1168,11 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                     if isinstance(subnode, ast.Continue):
                         hascont = True
                         contname = "ZCONT_%i" % zrand
-                        print("goto ", contname, '; -- continue', sep="")
+                        print("goto", contname)
                     elif isinstance(subnode, ast.Break) and node.orelse:
                         hasbreak = True
                         breakname = "ZBREAK_%i" % zrand
-                        print("goto ", breakname, '; -- break', sep="")
+                        print("goto", breakname)
                     else:
                         self.print_node(subnode)
 
@@ -1337,6 +1337,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         # self.print("-- nonlocal %s" % ", ".join(node.names))
         raise IsControlFlow
+
+    # visit_Continue and visit_Break are needed. (for, if?)
 
     def visit_ClassDef(self, node):
         print = self.print
