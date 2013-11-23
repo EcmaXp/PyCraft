@@ -1,4 +1,2 @@
 @echo off
-set APPDATA=.
-
-javaw -jar desktop.jar
+java -jar desktop.jar
