@@ -1,6 +1,8 @@
 if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
 __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
+_M = setmetatable({"_G":_G}, {"__index":_G})
+setfenv(1, _M)
 
 global lua
 lua = {}
@@ -26,6 +28,10 @@ ObjPCEX = setmetatable({}, {"__mode":"k"})
 Obj_FromID = setmetatable({}, {"__mode":"v"})
 BuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## must cleaned after collectgarbage()
+
+## pairs with weakref table are unsafe!
+InitalBuiltinTypes = {}
+##
 
 builtin_methods = __PC_ECMAXP_GET_OBJECT_ATTRS()
 builtin_methods_rev = {}
@@ -112,7 +118,7 @@ def setup_base_class(cls):
             pcex[idx] = v
 
     ObjPCEX[cls] = pcex
-    BuiltinTypes[cls] = false
+    InitalBuiltinTypes[cls] = false
     register_pyobj(cls)
 
     return cls
@@ -124,7 +130,7 @@ def setup_basic_class(cls):
     return cls
 
 def setup_hide_class(cls):
-    BuiltinTypes[cls] = nil
+    InitalBuiltinTypes[cls] = nil
     return cls
 
 def register_builtins_class(cls):
@@ -139,7 +145,7 @@ def register_builtins_class(cls):
         LUA_CODE("for i = #bases, 1, -1 do --")
         if true:
             base = bases[i]
-            if BuiltinTypes[base] is not nil:
+            if InitalBuiltinTypes[base] is not nil:
                 mro[idx] = base
                 idx += 1
         LUA_CODE("end")
@@ -153,7 +159,7 @@ def register_builtins_class(cls):
     rawset(cls, "__module__", str("builtins"))
     rawset(cls, "__mro__", tuple(mro))
 
-    BuiltinTypes[cls] = true
+    InitalBuiltinTypes[cls] = true
     return cls
 
 def Fail_OP(a, ax):
@@ -768,11 +774,9 @@ class dict(LuaObject):
 
 ## inital Code
 def inital():
-    for cls, inited in pairs(BuiltinTypes):
-        assert inited is false
+    for cls, cinit in pairs(InitalBuiltinTypes):
         register_builtins_class(cls)
-        inited = BuiltinTypes[cls]
-        assert inited is true
+        BuiltinTypes[cls] = true
 
     _M["NotImplemented"] = NotImplementedType()
     _M["Ellipsis"] = EllipsisType()

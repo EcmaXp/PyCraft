@@ -559,7 +559,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
     def visit_Name(self, node):
         if node.id in SPECIAL_NAMES:
             if node.id in block.local_defined:
-                return "getfenv()[%r]" % self.rvisit(node.id)
+                return "getfenv(1)[%r]" % self.rvisit(node.id)
             elif node.id in block.global_defined:
                 return "_M[%r]" % self.rvisit(node.id)
             elif node.id in block.nonlocal_defined:
@@ -807,7 +807,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_Module(self, node):
         self.reset()
-        self.print("local _M = getfenv();") # TODO: how to change _M to ohter?
+        self.print("local _M = getfenv(1);") # TODO: how to change _M to ohter?
         block = self.current_block
         # block.default_defined = block.global_defined
         # ??
@@ -817,7 +817,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def visit_Interactive(self, node):
         self.reset()
-        self.print("local _M = getfenv();")
+        self.print("local _M = getfenv(1);")
         self.unroll(node.body, mode=self.hasblock)
 
         return self.fp.getvalue()
@@ -930,6 +930,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
             if isinstance(op, (Is, IsNot)):
                 if not (check_const(left) or check_const(right)):
+                    # TODO: rawequal
                     self.not_support_error((left, right), "Compare %r with" % op)
 
                 op = {Is : Eq, IsNot : NotEq}[type(op)]()
