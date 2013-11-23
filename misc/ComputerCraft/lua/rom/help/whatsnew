@@ -1,0 +1,7 @@
+New Features in ComputerCraft 1.56:
+
+. Added Treasure Disks: Floppy Disks in dungeons which contain interesting community made programs. Find them all!
+. All turtle functions now return additional error messages when they fail.
+. Resource Packs with Lua Programs can now be edited when extracted to a folder, for easier editing.
+
+Type "help changelog" to see the full version history.
