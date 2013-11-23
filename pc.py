@@ -1361,32 +1361,37 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         for base in node.bases:
             bases.append(self.visit(base))
 
-        clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
-        print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
+        clsfmt = define_type, name, name, bases and ": " or "", ", ".join(bases)
+        print("%s%s = (function(_M)--(%s%s%s)" % clsfmt)
         with self.block(scope=True):
-            print("setfenv(1, setmetatable({}, {_G=_G,__index=_G}));")
+            print("local scope = setmetatable({}, {__index=_M})", end="\n;")
+
             if bases:
                 print("(function(o,c,k,v)")
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
                 print("    for k,v in pairs(c) do o[k]=v end")
                 print("  end")
-                print("end)(getfenv())", end=";\n")
+                print("end)(scope)", end=";\n")
                 # TODO: __bases__ are enable by special function?
-                print("__bases__ = {%s}" % ", ".join(bases), end=";\n")
+                print("scope.__bases__ = {%s}" % ", ".join(bases), end=";\n")
 
-            print("__name__", "=", repr(name), end=";\n")
+            print("scope.__name__", "=", repr(name), end=";\n")
 
-            block = self.current_block
-            block.default_defined = block.global_defined
-            # TODO: change type_table for assign out of this class.
+            print("function doload()")
+            with self.block(scope=True):
+                block = self.current_block
+                block.default_defined = block.global_defined
+                # TODO: change type_table for assign out of this class.
 
-            for subnode in node.body:
-                self.print_node(subnode)
-                if isinstance(subnode, FunctionDef):
-                    print("setfenv(%s, _G)" % subnode.name, end=";\n")
-
-            print("return getfenv()", end=";\n")
-        print("end)(getfenv())", end=";\n")
+                for subnode in node.body:
+                    self.print_node(subnode)
+                    if isinstance(subnode, FunctionDef):
+                        print("setfenv(%s, _M)" % subnode.name, end=";\n")
+            print("end", end=";\n")
+            print("setfenv(doload, scope)", end=";\n")
+            print("doload()", end=";\n")
+            print("return scope", end=";\n")
+        print("end)(_M)", end=";\n")
 
         if metatable:
             print("setmetatable(%s, %s)" % (name, metatable), end=";\n")
@@ -1399,6 +1404,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 _DEFAULT_COMPILE_MODE = "exec"
 
 def lua_compile(code, codetype, mode=_DEFAULT_COMPILE_MODE):
+    if hasattr(code, "read"):
+        code = code.read()
+
     codetree = ast.parse(code, mode=mode)
 
     if codetype == CTYPE_LITE:
@@ -1551,8 +1559,14 @@ def compile_and_run_py_API():
 
     if os.getlogin() == "EcmaXp":
         # Only for me :D
-        with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
-            fp.write(compiled)
+        if os.path.exists(r"X:\Data\Workspace\newlua\src"):
+            with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
+                fp.write(compiled)
+
+        if os.path.exists(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1"):
+            with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1\py", "w") as fp:
+                fp.write(compiled)
+
 
     execute_lite(filename_api_lua, filename_api_py)
 
