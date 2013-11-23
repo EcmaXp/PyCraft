@@ -1364,13 +1364,13 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
         print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
         with self.block(scope=True):
-            print("setfenv(1, setmetatable({}, {_G=_G,__index=_G}));")
+            print("setfenv(0, setmetatable({_G=_G}, {__index=_G}));")
             if bases:
                 print("(function(o,c,k,v)")
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
                 print("    for k,v in pairs(c) do o[k]=v end")
                 print("  end")
-                print("end)(getfenv())", end=";\n")
+                print("end)(getfenv(0))", end=";\n")
                 # TODO: __bases__ are enable by special function?
                 print("__bases__ = {%s}" % ", ".join(bases), end=";\n")
 
@@ -1399,6 +1399,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 _DEFAULT_COMPILE_MODE = "exec"
 
 def lua_compile(code, codetype, mode=_DEFAULT_COMPILE_MODE):
+    if hasattr(code, "read"):
+        code = code.read()
+
     codetree = ast.parse(code, mode=mode)
 
     if codetype == CTYPE_LITE:
@@ -1551,8 +1554,13 @@ def compile_and_run_py_API():
 
     if os.getlogin() == "EcmaXp":
         # Only for me :D
-        with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
-            fp.write(compiled)
+        if os.path.exists(r"X:\Data\Workspace\newlua\src"):
+            with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
+                fp.write(compiled)
+
+        if os.path.exists(r"X:\Data\Workspace\newlua\src"):
+            with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
+                fp.write(compiled)
 
     execute_lite(filename_api_lua, filename_api_py)
 
