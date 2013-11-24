@@ -3,7 +3,7 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
-Progess 66%
+Progess 67%
 
 Any helper can help me. Open issue with support this.
 
@@ -29,9 +29,10 @@ Any helper can help me. Open issue with support this.
 * [Syntex] Python's own assign method can't (only lua thing are allowed.)
 * [Syntex] Python's own call can't (only *args are supported)
 * Support Python Modules (one computer hold only one python interpreter)
-* Support Class MRO
 * Support Binary Op and other Op
 * Support Python Bulitins
+* Support Linked List
+* Support Iter, If, etc.
 * Support str, int, float, tuple, dict, list, set builtins method.
 * If i add new mods for ComputerCraft, warp the 
  - lua: function os.run( _tEnv, _sPath, ... )
