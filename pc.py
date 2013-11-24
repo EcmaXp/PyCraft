@@ -6,6 +6,8 @@ import io
 import contextlib
 import weakref
 import random
+import linecache
+import subprocess
 
 CTYPE_LITE = "LITE"
 CTYPE_FULL = "FULL"
@@ -1465,10 +1467,6 @@ def lua_full_compile(code, **kwargs):
     return lua_compile(code, CTYPE_FULL, **kwargs)
 
 def execute_lite(runfile):
-    import linecache
-    import subprocess
-    from subprocess import PIPE
-
     if os.sep in os.path.normpath(runfile):
         # FIXME LATER!
         raise RuntimeError("Can't guess lua pattern of error")
@@ -1561,7 +1559,12 @@ def execute_lite(runfile):
         fmt = Py_TB_Format[BASIC + HAVE_LINE + bool(detail)]
         print(fmt.format(filename, lineno, detail))
 
-    process = subprocess.Popen([LUA_EXECUTE, runfile], stdout=PIPE, stderr=PIPE)
+    process = subprocess.Popen(
+        [LUA_EXECUTE, runfile],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
     stdout, stderr = map(bytes.decode, process.communicate())
 
     stdout = stdout.rstrip()
@@ -1572,11 +1575,14 @@ def execute_lite(runfile):
     stderr = stderr.rstrip()
 
     if stderr:
+        print()
         tbs = []
 
         for line in stderr.splitlines():
             if tbline is None:
                 tbline = line
+                continue
+
             if line == Lua_TB_Start:
                 print(Py_TB_Format[0])
             elif line.startswith("\t"):
@@ -1635,7 +1641,6 @@ def compile_and_run_py_API():
         if os.path.exists(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1"):
             with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1\py", "w") as fp:
                 fp.write(compiled)
-
 
     execute_lite(filename_api_lua)
 
