@@ -932,6 +932,7 @@ class bool(LuaObject):
             return str("False")
 
 @setup_basic_class
+@setup_hide_class
 class LuaNum(LuaObject):
     def __add__(self, other):
         return ObjValue[self] + ObjValue[other]
@@ -943,7 +944,7 @@ class LuaNum(LuaObject):
         return ObjValue[self] * ObjValue[other]
 
     def __truediv__(self, other):
-        return ObjValue[self] / ObjValue[other]
+        return float(ObjValue[self] / ObjValue[other])
 
     def __radd__(self, other):
         return ObjValue[other] + ObjValue[self]
@@ -955,11 +956,11 @@ class LuaNum(LuaObject):
         return ObjValue[other] * ObjValue[self]
 
     def __rtruediv__(self, other):
-        return ObjValue[other] / ObjValue[self]
+        return float(ObjValue[other] / ObjValue[self])
 
 global int
 @setup_basic_class
-class int(LuaObject):
+class int(LuaNum):
     def __add__(self, other):
         if isinstance(other, int) == False: return NotImplemented
         return int(LuaNum.__add__(self, other))
@@ -971,10 +972,6 @@ class int(LuaObject):
     def __mul__(self, other):
         if isinstance(other, int) == False: return NotImplemented
         return int(LuaNum.__mul__(self, other))
-
-    def __truediv__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__truediv__(self, other))
 
     def __radd__(self, other):
         if isinstance(other, int) == False: return NotImplemented
@@ -988,14 +985,9 @@ class int(LuaObject):
         if isinstance(other, int) == False: return NotImplemented
         return int(LuaNum.__rmul__(self, other))
 
-    def __rtruediv__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__rtruediv__(self, other))
-
-
 global float
 @setup_basic_class
-class float(LuaObject):
+class float(LuaNum):
     def __add__(self, other):
         return float(LuaNum.__add__(self, other))
 
@@ -1005,9 +997,6 @@ class float(LuaObject):
     def __mul__(self, other):
         return float(LuaNum.__mul__(self, other))
 
-    def __truediv__(self, other):
-        return float(LuaNum.__truediv__(self, other))
-
     def __radd__(self, other):
         return float(LuaNum.__radd__(self, other))
 
@@ -1016,9 +1005,6 @@ class float(LuaObject):
 
     def __rmul__(self, other):
         return float(LuaNum.__rmul__(self, other))
-
-    def __rtruediv__(self, other):
-        return float(LuaNum.__rtruediv__(self, other))
 
 global dict
 @setup_basic_class
@@ -1051,4 +1037,5 @@ for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
 print(str.mro())
 print(object.mro())
 print(_OP__Truediv__(int(3), int(6)))
+print(int.mro())
 print(str("Hello world!"))

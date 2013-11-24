@@ -1239,7 +1239,7 @@ local LuaNum = (function(_M)--(LuaNum: LuaObject)
     end;
     setfenv(__mul__, _M);
     function __truediv__(self, other)
-      return (ObjValue[self] / ObjValue[other]);
+      return float((ObjValue[self] / ObjValue[other]));
     end;
     setfenv(__truediv__, _M);
     function __radd__(self, other)
@@ -1255,7 +1255,7 @@ local LuaNum = (function(_M)--(LuaNum: LuaObject)
     end;
     setfenv(__rmul__, _M);
     function __rtruediv__(self, other)
-      return (ObjValue[other] / ObjValue[self]);
+      return float((ObjValue[other] / ObjValue[self]));
     end;
     setfenv(__rtruediv__, _M);
   end;
@@ -1264,14 +1264,15 @@ local LuaNum = (function(_M)--(LuaNum: LuaObject)
   return scope;
 end)(_M);
 LuaNum = setup_basic_class(LuaNum);
-int = (function(_M)--(int: LuaObject)
+LuaNum = setup_hide_class(LuaNum);
+int = (function(_M)--(int: LuaNum)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
-    for k,c in pairs({LuaObject}) do
+    for k,c in pairs({LuaNum}) do
       for k,v in pairs(c) do o[k]=v end
     end
   end)(scope);
-  scope.__bases__ = {LuaObject};
+  scope.__bases__ = {LuaNum};
   scope.__name__ = 'int';
   function doload()
     function __add__(self, other)
@@ -1295,13 +1296,6 @@ int = (function(_M)--(int: LuaObject)
       return int(LuaNum.__mul__(self, other));
     end;
     setfenv(__mul__, _M);
-    function __truediv__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__truediv__(self, other));
-    end;
-    setfenv(__truediv__, _M);
     function __radd__(self, other)
       if isinstance(other, int) == False then
         return NotImplemented;
@@ -1323,27 +1317,20 @@ int = (function(_M)--(int: LuaObject)
       return int(LuaNum.__rmul__(self, other));
     end;
     setfenv(__rmul__, _M);
-    function __rtruediv__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__rtruediv__(self, other));
-    end;
-    setfenv(__rtruediv__, _M);
   end;
   setfenv(doload, scope);
   doload();
   return scope;
 end)(_M);
 int = setup_basic_class(int);
-float = (function(_M)--(float: LuaObject)
+float = (function(_M)--(float: LuaNum)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
-    for k,c in pairs({LuaObject}) do
+    for k,c in pairs({LuaNum}) do
       for k,v in pairs(c) do o[k]=v end
     end
   end)(scope);
-  scope.__bases__ = {LuaObject};
+  scope.__bases__ = {LuaNum};
   scope.__name__ = 'float';
   function doload()
     function __add__(self, other)
@@ -1358,10 +1345,6 @@ float = (function(_M)--(float: LuaObject)
       return float(LuaNum.__mul__(self, other));
     end;
     setfenv(__mul__, _M);
-    function __truediv__(self, other)
-      return float(LuaNum.__truediv__(self, other));
-    end;
-    setfenv(__truediv__, _M);
     function __radd__(self, other)
       return float(LuaNum.__radd__(self, other));
     end;
@@ -1374,10 +1357,6 @@ float = (function(_M)--(float: LuaObject)
       return float(LuaNum.__rmul__(self, other));
     end;
     setfenv(__rmul__, _M);
-    function __rtruediv__(self, other)
-      return float(LuaNum.__rtruediv__(self, other));
-    end;
-    setfenv(__rtruediv__, _M);
   end;
   setfenv(doload, scope);
   doload();
@@ -1421,4 +1400,5 @@ end;
 print(str.mro());
 print(object.mro());
 print(_OP__Truediv__(int(3), int(6)));
+print(int.mro());
 print(str('Hello world!'));
