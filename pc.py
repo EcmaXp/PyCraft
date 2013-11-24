@@ -6,9 +6,12 @@ import io
 import contextlib
 import weakref
 import random
+import linecache
+import subprocess
 
 CTYPE_LITE = "LITE"
 CTYPE_FULL = "FULL"
+LUA_EXECUTE = "tools/lua/lua5.1.exe"
 
 __all__ = [
     "lua_lite_compile", "lua_full_compile",
@@ -444,6 +447,11 @@ class BlockBasedNodeVisitor(ast.NodeVisitor):
         raise TypeError("%s %r are not supported by %s" % (action, obj, type(self).__name__))
 
 class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
+    def __init__(self, filename=None, debug_info=False):
+        self.filename = filename
+        self.debug_info = debug_info
+        super().__init__()
+
     def reset(self):
         super().reset()
         self.fp = io.StringIO()
@@ -458,14 +466,22 @@ class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
         self.indent -= 1
         super().exit_block(block_env)
 
-    def print(self, *args, **kwargs):
+    def print(self, *args, sep=' ', end='\n'):
         fp = self.fp
+
         if self.lastend.endswith("\n"):
             fp.write(self.indent * self.TAB)
             self.lineno += 1
-        self.lastend = kwargs.get("end", "\n")
-        print(*args, file=fp, **kwargs)
-        #if args == ("end",): raise
+
+        self.lastend = end
+
+        if args and args[-1] == ";":
+            line = sep.join(args[:-1])
+            end = ";" + end
+        else:
+            line = sep.join(args)
+
+        print(line, file=fp, end=end)
 
     def generic_visit(self, node):
         self.not_support_error(node, action="work with")
@@ -559,7 +575,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
     def visit_Name(self, node):
         if node.id in SPECIAL_NAMES:
             if node.id in block.local_defined:
-                return "getfenv()[%r]" % self.rvisit(node.id)
+                return "getfenv(1)[%r]" % self.rvisit(node.id)
             elif node.id in block.global_defined:
                 return "_M[%r]" % self.rvisit(node.id)
             elif node.id in block.nonlocal_defined:
@@ -774,6 +790,10 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         Lua_None,
     }
 
+    def __init__(self, filename=None, debug_info=False, enable_global=False):
+        super().__init__(filename=filename, debug_info=debug_info)
+        self.enable_global = False
+
     def reset(self):
         super().reset()
         self.enable_special = False
@@ -803,21 +823,36 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 self.print_lineinfo(subnode)
 
     def print_lineinfo(self, subnode):
-        self.print(" -- [LINE %i]" % subnode.lineno)
+        if self.debug_info:
+            self.print(" -- [LINE %i]" % subnode.lineno)
+        else:
+            self.print()
+
+    def print_basic_debug_info(self):
+        if self.debug_info:
+            if self.filename:
+                self.print("-- [DEBUG; %s] --" % self.filename)
+            else:
+                self.print("-- [DEBUG] --")
+            self.print()
 
     def visit_Module(self, node):
         self.reset()
-        self.print("local _M = getfenv();") # TODO: how to change _M to ohter?
+        self.print_basic_debug_info()
+        self.print("local _M = getfenv(1);") # TODO: how to change _M to ohter?
         block = self.current_block
-        # block.default_defined = block.global_defined
-        # ??
+
+        if self.enable_global:
+            block.default_defined = block.global_defined
+
         self.unroll(node.body)
 
         return self.fp.getvalue()
 
     def visit_Interactive(self, node):
         self.reset()
-        self.print("local _M = getfenv();")
+        self.print_basic_debug_info()
+        self.print("local _M = getfenv(1);")
         self.unroll(node.body, mode=self.hasblock)
 
         return self.fp.getvalue()
@@ -930,6 +965,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
             if isinstance(op, (Is, IsNot)):
                 if not (check_const(left) or check_const(right)):
+                    # TODO: rawequal
                     self.not_support_error((left, right), "Compare %r with" % op)
 
                 op = {Is : Eq, IsNot : NotEq}[type(op)]()
@@ -1148,7 +1184,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 print("else")
                 with self.block():
                     self.unroll(node.orelse)
-        print("end", end=";\n")
+        print("end;")
 
         raise IsControlFlow
 
@@ -1167,17 +1203,17 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                     if isinstance(subnode, ast.Continue):
                         hascont = True
                         contname = "ZCONT_%i" % zrand
-                        print("goto ", contname, '; -- continue', sep="")
+                        print("goto", contname)
                     elif isinstance(subnode, ast.Break) and node.orelse:
                         hasbreak = True
                         breakname = "ZBREAK_%i" % zrand
-                        print("goto ", breakname, '; -- break', sep="")
+                        print("goto", breakname)
                     else:
                         self.print_node(subnode)
 
                 if hascont:
                     print("::", contname, "::", sep="")
-            print("end", end=";\n")
+            print("end;")
 
             if node.orelse:
                 self.unroll(node.orelse)
@@ -1201,7 +1237,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
                 if targets:
                     # FIXME
-                    print(block.default_defined_type, ", ".join(targets), end=";\n")
+                    print(block.default_defined_type, ", ".join(targets), ";")
 
                 target = ", ".join(map(self.visit, node.target.elts))
             elif isinstance(node.target, Name):
@@ -1233,7 +1269,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         for decorator in node.decorator_list:
             with self.noblock():
-                print("%s = %s(%s)" % (node.name, self.visit(decorator), node.name), end=";\n")
+                print("%s = %s(%s)" % (node.name, self.visit(decorator), node.name), ";")
 
         raise IsControlFlow
 
@@ -1273,7 +1309,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 block.vararg = vararg
 
             self.unroll(node.body)
-        print("end", end=";\n")
+        print("end;")
 
         with self.hasblock():
             self._visit_Decorators(node)
@@ -1337,6 +1373,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         # self.print("-- nonlocal %s" % ", ".join(node.names))
         raise IsControlFlow
 
+    # visit_Continue and visit_Break are needed. (for, if?)
+
     def visit_ClassDef(self, node):
         print = self.print
 
@@ -1361,35 +1399,40 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         for base in node.bases:
             bases.append(self.visit(base))
 
-        clsfmt = define_type, name, name, bases and ":" or "", ", ".join(bases)
-        print("%s%s = (function(_G) -- (class %s%s%s)" % clsfmt)
+        clsfmt = define_type, name, name, bases and ": " or "", ", ".join(bases)
+        print("%s%s = (function(_M)--(%s%s%s)" % clsfmt)
         with self.block(scope=True):
-            print("setfenv(1, setmetatable({}, {_G=_G,__index=_G}));")
+            print("local scope = setmetatable({}, {__index=_M})", end="\n;")
+
             if bases:
                 print("(function(o,c,k,v)")
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
                 print("    for k,v in pairs(c) do o[k]=v end")
                 print("  end")
-                print("end)(getfenv())", end=";\n")
+                print("end)(scope);")
                 # TODO: __bases__ are enable by special function?
-                print("__bases__ = {%s}" % ", ".join(bases), end=";\n")
+                print("scope.__bases__ = {%s}" % ", ".join(bases), ";")
 
-            print("__name__", "=", repr(name), end=";\n")
+            print("scope.__name__", "=", repr(name), ";")
 
-            block = self.current_block
-            block.default_defined = block.global_defined
-            # TODO: change type_table for assign out of this class.
+            print("function doload()")
+            with self.block(scope=True):
+                block = self.current_block
+                block.default_defined = block.global_defined
+                # TODO: change type_table for assign out of this class.
 
-            for subnode in node.body:
-                self.print_node(subnode)
-                if isinstance(subnode, FunctionDef):
-                    print("setfenv(%s, _G)" % subnode.name, end=";\n")
-
-            print("return getfenv()", end=";\n")
-        print("end)(getfenv())", end=";\n")
+                for subnode in node.body:
+                    self.print_node(subnode)
+                    if isinstance(subnode, FunctionDef):
+                        print("setfenv(%s, _M)" % subnode.name, ";")
+            print("end;")
+            print("setfenv(doload, scope);")
+            print("doload();")
+            print("return scope;")
+        print("end)(_M);")
 
         if metatable:
-            print("setmetatable(%s, %s)" % (name, metatable), end=";\n")
+            print("setmetatable(%s, %s)" % (name, metatable), ";")
 
         with self.hasblock():
             self._visit_Decorators(node)
@@ -1397,8 +1440,14 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         raise IsControlFlow
 
 _DEFAULT_COMPILE_MODE = "exec"
+_DEFAULT_DEBUG = False
 
-def lua_compile(code, codetype, mode=_DEFAULT_COMPILE_MODE):
+def lua_compile(code, codetype,
+        mode=_DEFAULT_COMPILE_MODE, debug=_DEFAULT_DEBUG, filename_hint=None):
+
+    if hasattr(code, "read"):
+        code = code.read()
+
     codetree = ast.parse(code, mode=mode)
 
     if codetype == CTYPE_LITE:
@@ -1409,86 +1458,113 @@ def lua_compile(code, codetype, mode=_DEFAULT_COMPILE_MODE):
     else:
         raise ValueError("codetype must in %r" % {CTYPE_LITE, CTYPE_FULL})
 
-    return LiteLuaGenerator().visit(codetree)
+    return LiteLuaGenerator(filename=filename_hint, debug_info=debug).visit(codetree)
 
-def lua_lite_compile(code, mode=_DEFAULT_COMPILE_MODE):
-    return lua_compile(code, CTYPE_LITE, mode=mode)
+def lua_lite_compile(code, **kwargs):
+    return lua_compile(code, CTYPE_LITE, **kwargs)
 
-def lua_full_compile(code, mode=_DEFAULT_COMPILE_MODE):
-    return lua_compile(code, CTYPE_FULL, mode=mode)
+def lua_full_compile(code, **kwargs):
+    return lua_compile(code, CTYPE_FULL, **kwargs)
 
-def execute_lite(filename, fromfile=None):
-    # TODO: Clean me!?
-    if os.sep in os.path.normpath(filename):
+def execute_lite(runfile):
+    if os.sep in os.path.normpath(runfile):
         # FIXME LATER!
         raise RuntimeError("Can't guess lua pattern of error")
 
-    if fromfile:
-        fromfile = os.path.abspath(fromfile)
-    else:
-        fromfile = filename
+    Lua_TB_Start = "stack traceback:"
 
-    filetable = {}
+    Py_TB_Format = [
+        # 0, Traceback (most recent call last):
+        'Traceback (most recent call last):',
 
-    def get_lineno(filename, lineno):
-        if filename not in filetable:
-            filenotable = {}
-            filetable[filename] = filenotable
-            lastlineno = None
+        # 1,   File "something.py"
+        '  File "{}"',
+        # HAVE_DETAIL
+        '  File "{}", {}',
+        # HAVE_LINE
+        '  File "{}", line {}',
+        # HAVE_LINE + HAVE_DETAIL
+        '  File "{}", line {}, {}',
+
+        # -2,    raise Exception("something")
+        '    {}',
+
+        # -1, Exception: something
+        '{}: {}',
+    ]
+
+    BASIC = 1
+    HAVE_LINE = 2
+    HAVE_DETAIL = 1
+
+    finfo = {}
+    def init_fileinfo(filename):
+        if filename not in finfo:
+            flines = [None]
+            finfo[filename] = flines
+
+            realno = None
 
             with open(filename, 'r') as fp:
-                for no, line in enumerate(fp, 1):
+                for line in fp:
                     line = line.rstrip('\r\n')
                     if "-- [LINE " in line:
                         a, b, c = line.rpartition("-- [LINE ")
                         d, e, f = c.partition("]")
                         assert a and b and e and not f
-                        lastlineno = int(d)
+                        realno = int(d)
+                    elif line.startswith("-- [DEBUG; "): # ] --
+                        a, b, c = line.partition("-- [DEBUG; ")
+                        d, e, f = c.partition("] --")
+                        assert not a and b and c and e and not f
+                        flines[0] = d
 
-                    filenotable[no] = lastlineno, line
+                    flines.append(realno)
 
-        return filetable[filename][lineno][0]
+    def get_from_filename(filename):
+        return finfo[filename][0]
 
-    def get_line(filename, lineno):
-        get_lineno(filename, lineno)
-        return filetable[filename][lineno][1]
+    def get_lineno(filename, lineno):
+        return finfo[filename][lineno]
 
-    unkcount = 0
     def parse_tb(line, ignore_realno=False):
-        nonlocal unkcount
-
         trace, sep, detail = line.partition(": ")
+        filename, have_lineno, lineno = trace.partition(":")
 
-        if not detail:
-            detail_help = ""
-        else:
-            detail_help = ", " + detail
+        if not have_lineno:
+            fmt = Py_TB_Format[BASIC + bool(detail)]
+            print(fmt.format(filename, detail))
+            return
 
-        if ":" in trace:
-            tracename, sep, lineno = trace.partition(":")
-            lineno = int(lineno)
+        filename, sep, lineno = trace.partition(":")
+        lineno = int(lineno)
 
-            if tracename == filename:
-                realno = get_lineno(tracename, lineno)
+        if filename == runfile:
+            init_fileinfo(filename)
+            fromfile = get_from_filename(filename)
+
+            if fromfile:
+                realno = get_lineno(filename, lineno)
+
                 if realno and not ignore_realno:
-                    fmt = "  File \"%s\", line %i%s"
-                    print(fmt % (fromfile, realno, detail_help))
-                    print("   ", get_line(fromfile, realno).strip())
+                    line = linecache.getline(fromfile, realno)
+
+                    fmt = Py_TB_Format[BASIC + HAVE_LINE + bool(detail)]
+                    print(fmt.format(fromfile, realno, detail))
+
+                    fmt = Py_TB_Format[-2]
+                    print(fmt.format(line.strip()))
                     return
 
-            fmt = "  File %r, line %i%s"
-            print(fmt % (trace, lineno, detail_help))
-            return
-        else:
-            fmt = "  File %r%s"
-            print(fmt % (trace, detail_help))
-            return
+        fmt = Py_TB_Format[BASIC + HAVE_LINE + bool(detail)]
+        print(fmt.format(filename, lineno, detail))
 
-    import subprocess
-    import types
+    process = subprocess.Popen(
+        [LUA_EXECUTE, runfile],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
-    from subprocess import PIPE
-    process = subprocess.Popen(["tools/lua/lua5.1.exe", filename], stdout=PIPE, stderr=PIPE)
     stdout, stderr = map(bytes.decode, process.communicate())
 
     stdout = stdout.rstrip()
@@ -1499,20 +1575,20 @@ def execute_lite(filename, fromfile=None):
     stderr = stderr.rstrip()
 
     if stderr:
+        print()
         tbs = []
 
         for line in stderr.splitlines():
             if tbline is None:
                 tbline = line
                 continue
-            if line == "stack traceback:":
-                print("Traceback (most recent call last):")
-                continue
+
+            if line == Lua_TB_Start:
+                print(Py_TB_Format[0])
             elif line.startswith("\t"):
                 tbs.append(line.lstrip("\t"))
-                continue
-
-            print(line)
+            else:
+                print(line)
 
         for tb in reversed(tbs):
             parse_tb(tb)
@@ -1522,7 +1598,9 @@ def execute_lite(filename, fromfile=None):
                 tb = tbline.partition(": ")[2]
                 tb, sep, detail = tb.partition(": ")
                 parse_tb(tb)
-                print("LuaException: " + detail)
+
+                fmt = Py_TB_Format[-1]
+                print(fmt.format("E", detail))
             else:
                 tb = tbline.partition(": ")[2]
                 tb, sep, detail = tb.partition(": ")
@@ -1532,8 +1610,13 @@ def execute_lite(filename, fromfile=None):
                 lineno = int(lineno)
                 assert sep
 
-                print("   ", get_line(filename, lineno))
-                print("SyntexError: " + detail)
+                line = linecache.getline(filename, lineno)
+
+                fmt = TB_FORMAT[-2]
+                print(fmt.format(line))
+
+                fmt = TB_FORMAT[-1]
+                print(fmt.format("SyntexError", detail))
 
 def compile_and_run_py_API():
     filename_api = "py_API"
@@ -1543,7 +1626,7 @@ def compile_and_run_py_API():
     with open(filename_api_py) as fp:
         code = fp.read()
 
-    compiled = lua_lite_compile(code)
+    compiled = lua_lite_compile(code, debug=True, filename_hint=filename_api_py)
     #print("Success compiled with size:", len(compiled))
 
     with open(filename_api_lua, "w") as fp:
@@ -1551,10 +1634,15 @@ def compile_and_run_py_API():
 
     if os.getlogin() == "EcmaXp":
         # Only for me :D
-        with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
-            fp.write(compiled)
+        if os.path.exists(r"X:\Data\Workspace\newlua\src"):
+            with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
+                fp.write(compiled)
 
-    execute_lite(filename_api_lua, filename_api_py)
+        if os.path.exists(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1"):
+            with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1\py", "w") as fp:
+                fp.write(compiled)
+
+    execute_lite(filename_api_lua)
 
 def main():
     compile_and_run_py_API()
