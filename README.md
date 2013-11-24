@@ -3,7 +3,7 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
-Progess 64%
+Progess 66%
 
 Any helper can help me. Open issue with support this.
 
@@ -20,23 +20,28 @@ Any helper can help me. Open issue with support this.
 ## Limits
 * We can't use original python library. (it is special, unlike other real computer)
 * Lua are not support undefine (just assign nil is undefine), so no way to detect Undefined Value.
+* Will not release the 'exec', 'eval', and 'compile', that is expansive resource.
 
 ## TODO
-* Make Python Import Module Library and programs as python module. (one computer hold only one python interpreter)
-* Rewrite define, and support types (int, float, list, tuple, dict, set, etc)
+* [Syntex] 반복문 내부의 변수 접근이 제한되어 있음. (Lua are don't allow loop's value.)
+* {Syntex] currently continue, break are not supported. (goto are not aupport on lua 5.1)
+* [Syntex] Python's List (or tuple, dict, set, etc) comprehension are not supported.
+* [Syntex] Python's own assign method can't (only lua thing are allowed.)
+* [Syntex] Python's own call can't (only *args are supported)
+* Support Python Modules (one computer hold only one python interpreter)
+* Support Class MRO
 * Support Binary Op and other Op
 * Support Python Bulitins
 * Support str, int, float, tuple, dict, list, set builtins method.
 * If i add new mods for ComputerCraft, warp the 
  - lua: function os.run( _tEnv, _sPath, ... )
  - lua: function os.loadAPI( _sPath )
- - api: ILuaContext for compile, execute.
 
 ## Check Here
 * http://www.computercraft.info/
 * http://greentreesnakes.readthedocs.org/en/latest/
-* https://pypi.python.org/pypi/astmonkey/0.1.0
 * http://docs.python.org/3.3/library/ast.html
+* http://ccdesk.afterlifelochie.net/
 * http://www.lua.org/
 * http://www.eclipse.org/koneki/ldt/
 * https://code.google.com/p/pyscripter/
