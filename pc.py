@@ -1406,7 +1406,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         with self.block(scope=True):
             print("local scope = setmetatable({}, {__index=_M})", end="\n;")
 
-            if bases:
+            if not bases:
+                print("scope.__bases__ = {};")
+            else:
                 print("(function(o,c,k,v)")
                 print("  for k,c in pairs({%s}) do" % ", ".join(bases[::-1]))
                 print("    for k,v in pairs(c) do o[k]=v end")

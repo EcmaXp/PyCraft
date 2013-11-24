@@ -59,12 +59,14 @@ def is_float(num):
 def is_pyobj(obj):
     return ObjID[obj] is not nil
 
+global PObj
 def PObj(obj):
     if is_pyobj(obj):
         return obj
     else:
         return LuaObject(obj)
 
+global LObj
 def LObj(obj):
     if is_pyobj(obj):
         return _OP__Lua__(obj)
@@ -119,6 +121,91 @@ def is_float(num):
 
     return math.floor(num) != num
 
+global _C3_MRO
+class _C3_MRO(): # This is container. not like class.
+    # https://gist.github.com/eric-wieser/3804277
+    def merge(seqs):
+        res = {}
+        while true:
+            # filter out empty sequences
+            nonemptyseqs = {}
+            for _, seq in ipairs(seqs):
+                if lua.len(seq) > 0: table.insert(nonemptyseqs, seq)
+
+            # all sequences empty? we're done!
+            if lua.len(nonemptyseqs) == 0:
+                return res
+
+            #find merge candidates among seq heads
+            cand = nil
+            set_break = false
+            for _, seq in ipairs(nonemptyseqs):
+                if not set_break:
+                    cand = seq[1]
+                    # check if the candidate is in the tail of any sequence
+                    def intail():
+                        for _, nonemptyseq in ipairs(nonemptyseqs):
+                            for j, cls in ipairs(nonemptyseq):
+                                if j > 1 and cls == cand:
+                                    return true
+
+                        return false
+                    intail = intail()
+
+                    if not intail:
+                        set_break = true
+                    else:
+                        cand = nil # reject candidate
+
+            # add new entry
+            if not cand:
+                error("Inconsistent hierarchy", 2)
+            else:
+                table.insert(res, cand)
+                for _, seq in ipairs(nonemptyseqs): # remove cand
+                    if seq[1] == cand:
+                        table.remove(seq, 1)
+
+    def mro(C):
+        # Compute the class precedence list (mro) according to C3
+        mros = {}
+        basesCopy = {} # we need to copy C.__bases__ so that it isn't modified
+        table.insert(mros, {C})
+        for _, base in ipairs(C.__bases__):
+            mro = _C3_MRO.get_cached_mro(base)
+            if mro is nil:
+                mro = _C3_MRO.mro(base)
+
+            table.insert(mros, mro)
+            table.insert(basesCopy, base)
+
+        table.insert(mros, basesCopy)
+        return _C3_MRO.merge(mros)
+
+    def get_cached_mro(C):
+        if not inited:
+            if C.__mro__ is nil:
+                return nil
+
+            new_mro = {} # for work with mro() func
+            for k, v in pairs(C.__mro__):
+                new_mro[k] = v
+
+            return new_mro
+
+        error("FAILED")
+
+def hide_class_from_seq(seq):
+    new_seq = {}
+    idx = 1
+
+    for k, v in pairs(seq):
+        if InitalBuiltinTypes[v] is not nil:
+            new_seq[idx] = v
+            idx += 1
+
+    return new_seq
+
 def setup_base_class(cls):
     pcex = {}
     for k, v in pairs(cls):
@@ -129,6 +216,8 @@ def setup_base_class(cls):
     ObjPCEX[cls] = pcex
     InitalBuiltinTypes[cls] = false
     register_pyobj(cls)
+
+    cls.__mro__ = _C3_MRO.mro(cls)
 
     return cls
 
@@ -143,30 +232,15 @@ def setup_hide_class(cls):
     return cls
 
 def register_builtins_class(cls):
-    idx = 1
-    mro = {}
-
-    mro[idx] = cls
-    idx += 1
-
-    bases = rawget(cls, "__bases__")
-    if bases is not nil:
-        LUA_CODE("for i = #bases, 1, -1 do --")
-        if true:
-            base = bases[i]
-            if InitalBuiltinTypes[base] is not nil:
-                mro[idx] = base
-                idx += 1
-        LUA_CODE("end")
-
     if cls != object:
-        mro[idx] = object
-        idx += 1
+        cls.__base__ = object
+    else:
+        cls.__base__ = None
 
-    rawset(cls, "__bases__", nil)
-    rawset(cls, "__name__", str(rawget(cls, "__name__")))
-    rawset(cls, "__module__", str("builtins"))
-    rawset(cls, "__mro__", tuple(mro))
+    cls.__name__ = str(rawget(cls, "__name__"))
+    cls.__module__ = str("builtins")
+    cls.__bases__ = tuple(hide_class_from_seq((cls.__bases__)))
+    cls.__mro__ = tuple(hide_class_from_seq((cls.__mro__)))
 
     InitalBuiltinTypes[cls] = true
     return cls
@@ -612,6 +686,7 @@ class UnstableException(Exception, BaseException):
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 
 @setup_basic_class
+@setup_hide_class
 class BuiltinConstType(object):
     def __new__(cls, *args):
         if not inited:
@@ -668,6 +743,8 @@ class LuaObject(object):
 
 def require_lua_sequance(value):
     if lua.type(value) != "table": pass
+    elif lua.len(value) == 0:
+        return true # special, empty table don't require any vaild.
     elif value[lua.len(value)] is nil: pass
     elif value[1] is nil: pass
     elif value[0] is not nil: pass
@@ -721,19 +798,25 @@ class tuple(LuaObject):
         error("Not support unknown type.")
 
     def __repr__(self):
-        ret = []
+        value = ObjValue[self]
+        ret = {}
         idx = 1
 
         sep = ""
         ret[idx] = "("; idx += 1
-        for k,v in pairs(ObjValue[self]):
+        for k,v in pairs(value):
             ret[idx] = sep; idx += 1
             ret[idx] = LObj(repr(v)); idx += 1
             sep = ", "
 
+        if lua.len(value) == 1:
+            ret[idx] = ","; idx += 1
+
         ret[idx] = ")"; idx += 1
 
         return table.concat(ret)
+
+list = tuple # list are broken, wait until fix. (with linked list!)
 
 global str
 @setup_basic_class
@@ -818,4 +901,7 @@ inited = inital()
 ##
 
 ## test code are here!
+print(str.mro())
+print(object.mro())
+
 print(str("Hello world!"))

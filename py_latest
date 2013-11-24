@@ -45,14 +45,14 @@ end;
 local function is_pyobj(obj)
   return ObjID[obj] ~= nil;
 end;
-local function PObj(obj)
+function PObj(obj)
   if is_pyobj(obj) then
     return obj;
   else
     return LuaObject(obj);
   end;
 end;
-local function LObj(obj)
+function LObj(obj)
   if is_pyobj(obj) then
     return _OP__Lua__(obj);
   else
@@ -113,6 +113,111 @@ function is_float(num)
   end;
   return math.floor(num) ~= num;
 end;
+_C3_MRO = (function(_M)--(_C3_MRO)
+  local scope = setmetatable({}, {__index=_M})
+;scope.__bases__ = {};
+  scope.__name__ = '_C3_MRO';
+  function doload()
+    function merge(seqs)
+      local res = {};
+      while true do
+        local nonemptyseqs = {};
+        local _, seq;
+        for _, seq in ipairs(seqs) do
+          if lua.len(seq) > 0 then
+            table.insert(nonemptyseqs, seq);
+          end;
+        end;
+        if lua.len(nonemptyseqs) == 0 then
+          return res;
+        end;
+        local cand = nil;
+        local set_break = false;
+        for _, seq in ipairs(nonemptyseqs) do
+          if not set_break then
+            cand = seq[1];
+            local function intail()
+              local _, nonemptyseq;
+              for _, nonemptyseq in ipairs(nonemptyseqs) do
+                local j, cls;
+                for j, cls in ipairs(nonemptyseq) do
+                  if j > 1 and cls == cand then
+                    return true;
+                  end;
+                end;
+              end;
+              return false;
+            end;
+            intail = intail();
+            if not intail then
+              set_break = true;
+            else
+              cand = nil;
+            end;
+          end;
+        end;
+        if not cand then
+          error('Inconsistent hierarchy', 2);
+        else
+          table.insert(res, cand);
+          for _, seq in ipairs(nonemptyseqs) do
+            if seq[1] == cand then
+              table.remove(seq, 1);
+            end;
+          end;
+        end;
+      end;
+    end;
+    setfenv(merge, _M);
+    function mro(C)
+      local mros = {};
+      local basesCopy = {};
+      table.insert(mros, {C});
+      local _, base;
+      for _, base in ipairs(C.__bases__) do
+        local mro = _C3_MRO.get_cached_mro(base);
+        if mro == nil then
+          mro = _C3_MRO.mro(base);
+        end;
+        table.insert(mros, mro);
+        table.insert(basesCopy, base);
+      end;
+      table.insert(mros, basesCopy);
+      return _C3_MRO.merge(mros);
+    end;
+    setfenv(mro, _M);
+    function get_cached_mro(C)
+      if not inited then
+        if C.__mro__ == nil then
+          return nil;
+        end;
+        local new_mro = {};
+        local k, v;
+        for k, v in pairs(C.__mro__) do
+          new_mro[k] = v;
+        end;
+        return new_mro;
+      end;
+      error('FAILED');
+    end;
+    setfenv(get_cached_mro, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+local function hide_class_from_seq(seq)
+  local new_seq = {};
+  local idx = 1;
+  local k, v;
+  for k, v in pairs(seq) do
+    if InitalBuiltinTypes[v] ~= nil then
+      new_seq[idx] = v;
+      idx = (idx + 1);
+    end;
+  end;
+  return new_seq;
+end;
 local function setup_base_class(cls)
   local pcex = {};
   local k, v;
@@ -125,6 +230,7 @@ local function setup_base_class(cls)
   ObjPCEX[cls] = pcex;
   InitalBuiltinTypes[cls] = false;
   register_pyobj(cls);
+  cls.__mro__ = _C3_MRO.mro(cls);
   return cls;
 end;
 local function setup_basic_class(cls)
@@ -137,30 +243,15 @@ local function setup_hide_class(cls)
   return cls;
 end;
 local function register_builtins_class(cls)
-  local idx = 1;
-  local mro = {};
-  mro[idx] = cls;
-  idx = (idx + 1);
-  local bases = rawget(cls, '__bases__');
-  if bases ~= nil then
-    for i = #bases, 1, -1 do --;
-    if true then
-      local base = bases[i];
-      if InitalBuiltinTypes[base] ~= nil then
-        mro[idx] = base;
-        idx = (idx + 1);
-      end;
-    end;
-    end;
-  end;
   if cls ~= object then
-    mro[idx] = object;
-    idx = (idx + 1);
+    cls.__base__ = object;
+  else
+    cls.__base__ = None;
   end;
-  rawset(cls, '__bases__', nil);
-  rawset(cls, '__name__', str(rawget(cls, '__name__')));
-  rawset(cls, '__module__', str('builtins'));
-  rawset(cls, '__mro__', tuple(mro));
+  cls.__name__ = str(rawget(cls, '__name__'));
+  cls.__module__ = str('builtins');
+  cls.__bases__ = tuple(hide_class_from_seq(cls.__bases__));
+  cls.__mro__ = tuple(hide_class_from_seq(cls.__mro__));
   InitalBuiltinTypes[cls] = true;
   return cls;
 end;
@@ -473,7 +564,8 @@ end;
 _ = nil;
 object = (function(_M)--(object)
   local scope = setmetatable({}, {__index=_M})
-;scope.__name__ = 'object';
+;scope.__bases__ = {};
+  scope.__name__ = 'object';
   function doload()
     function __init__(self)
     end;
@@ -741,6 +833,7 @@ local BuiltinConstType = (function(_M)--(BuiltinConstType: object)
   return scope;
 end)(_M);
 BuiltinConstType = setup_basic_class(BuiltinConstType);
+BuiltinConstType = setup_hide_class(BuiltinConstType);
 local NotImplementedType = (function(_M)--(NotImplementedType: BuiltinConstType)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -851,6 +944,8 @@ LuaObject = setup_basic_class(LuaObject);
 LuaObject = setup_hide_class(LuaObject);
 local function require_lua_sequance(value)
   if lua.type(value) ~= 'table' then
+  elseif lua.len(value) == 0 then
+    return true;
   elseif value[lua.len(value)] == nil then
   elseif value[1] == nil then
   elseif value[0] ~= nil then
@@ -928,18 +1023,23 @@ tuple = (function(_M)--(tuple: LuaObject)
     end;
     setfenv(__getitem__, _M);
     function __repr__(self)
+      local value = ObjValue[self];
       local ret = {};
       local idx = 1;
       local sep = '';
       ret[idx] = '(';
       idx = (idx + 1);
       local k, v;
-      for k, v in pairs(ObjValue[self]) do
+      for k, v in pairs(value) do
         ret[idx] = sep;
         idx = (idx + 1);
         ret[idx] = LObj(repr(v));
         idx = (idx + 1);
         sep = ', ';
+      end;
+      if lua.len(value) == 1 then
+        ret[idx] = ',';
+        idx = (idx + 1);
       end;
       ret[idx] = ')';
       idx = (idx + 1);
@@ -952,6 +1052,7 @@ tuple = (function(_M)--(tuple: LuaObject)
   return scope;
 end)(_M);
 tuple = setup_basic_class(tuple);
+list = tuple;
 str = (function(_M)--(str: LuaObject)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -1085,4 +1186,6 @@ local function inital()
   return true;
 end;
 inited = inital();
+print(str.mro());
+print(object.mro());
 print(str('Hello world!'));
