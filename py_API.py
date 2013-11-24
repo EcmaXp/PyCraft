@@ -801,3 +801,4 @@ inited = inital()
 
 ## test code are here!
 print(str("Hello world!"))
+error("test")
