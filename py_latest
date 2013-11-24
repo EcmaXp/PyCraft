@@ -292,127 +292,105 @@ local function OP_Call(ax)
   end;
   return func;
 end;
-local function OP_Math2(ax, bx)
-  local function func(a, b)
-    assert(require_pyobj(a, b));
-    local am = ObjPCEX[getmetatable(a)];
-    local bm = ObjPCEX[getmetatable(b)];
-    local f = am[ax];
-    if f then
-      local ret = f(a, b);
-      if ret ~= NotImplemented then
-        return ret;
+local function OP_Math1(vx, wx)
+  local function func(v, w)
+    assert(require_pyobj(v, w));
+    local vm = ObjPCEX[getmetatable(v)];
+    local wm = ObjPCEX[getmetatable(w)];
+    local vf = vm[vx];
+    if vm ~= wm then
+      local wf = wm[wx];
+      if vf == wf then
+        wf = nil;
       end;
     end;
-    f = bm[bx];
-    if f then
-      ret = f(b, a);
-      if ret ~= NotImplemented then
-        return ret;
+    if vf then
+      if wf and issubclass(type(w), type(v)) then
+        local x = wf(w, v);
+        if x ~= NotImplemented then
+          return x;
+        end;
+        wf = nil;
+      end;
+      x = vf(v, w);
+      if x ~= NotImplemented then
+        return x;
       end;
     end;
-    Fail_OP_Math(a, b, ax);
+    if wf then
+      x = wf(w, v);
+      if x ~= NotImplemented then
+        return x;
+      end;
+    end;
+    Fail_OP_Math(v, w, vx);
   end;
   return func;
 end;
-local function OP_Math3(cx, ax, bx)
-  local function func(a, b)
-    assert(require_pyobj(a, b));
-    local am = ObjPCEX[getmetatable(a)];
-    local bm = ObjPCEX[getmetatable(b)];
-    local is_n = isinstance(a, int) == True or isinstance(b, float) == True;
-    if is_n then
-      local f = am[ax];
-      if f then
-        local ret = f(a, b);
-        if ret ~= NotImplemented then
-          return ret;
-        end;
+local function OP_Math2(vx, wx, zx)
+  local op = OP_Math1(wx, zx);
+  local function func(v, w)
+    assert(require_pyobj(v, w));
+    local vm = ObjPCEX[getmetatable(v)];
+    local vf = vm[vx];
+    if vf then
+      local x = vf(v, w);
+      if x ~= NotImplemented then
+        return x;
       end;
     end;
-    f = am[cx];
-    if f then
-      ret = f(a, b);
-      if ret ~= NotImplemented then
-        return ret;
-      end;
-    end;
-    if not is_n then
-      f = am[ax];
-      if f then
-        ret = f(a, b);
-        if ret ~= NotImplemented then
-          return ret;
-        end;
-      end;
-    end;
-    f = bm[bx];
-    if f then
-      ret = f(b, a);
-      if ret ~= NotImplemented then
-        return ret;
-      end;
-    end;
-    Fail_OP_Math(a, b, cx);
+    return op(v, w);
   end;
   return func;
 end;
-local function OP_Math2_Pow(ax, bx)
-  local function func(a, b, c)
-    assert(require_pyobj(a, b));
-    assert(require_pyobj(c) or c == nil);
-    local am = ObjPCEX[getmetatable(a)];
-    local bm = ObjPCEX[getmetatable(b)];
-    local f = am[ax];
-    if f then
-      local ret = f(a, b, c);
-      if ret ~= NotImplemented then
-        return ret;
+local function OP_Math1_Pow(vx, wx)
+  local function func(v, w, z)
+    assert(require_pyobj(v, w));
+    local vm = ObjPCEX[getmetatable(v)];
+    local wm = ObjPCEX[getmetatable(w)];
+    local vf = vm[vx];
+    if vm ~= wm then
+      local wf = wm[wx];
+      if vf == wf then
+        wf = nil;
       end;
     end;
-    if c ~= nil then
-      f = bm[bx];
-      if f then
-        ret = f(b, a);
-        if ret ~= NotImplemented then
-          return ret;
+    if vf then
+      if wf and issubclass(type(w), type(v)) then
+        local x = wf(w, v, z);
+        if x ~= NotImplemented then
+          return x;
         end;
+        wf = nil;
+      end;
+      x = vf(v, w, z);
+      if x ~= NotImplemented then
+        return x;
       end;
     end;
-    Fail_OP_Math_Pow(a, b, ax, c);
+    if wf then
+      x = wf(w, v, z);
+      if x ~= NotImplemented then
+        return x;
+      end;
+    end;
+    Fail_OP_Math_Pow(v, w, vx, z);
   end;
   return func;
 end;
-local function OP_Math3_Pow(cx, ax, bx)
-  local function func(a, b, c)
-    assert(require_pyobj(a, b));
-    assert(require_pyobj(c) or c == nil);
-    local am = ObjPCEX[getmetatable(a)];
-    local bm = ObjPCEX[getmetatable(b)];
-    local f = am[cx];
-    if f then
-      local ret = f(a, b, c);
-      if ret ~= NotImplemented then
-        return ret;
+local function OP_Math2_Pow(vx, wx, zx)
+  local op = OP_Math1_Pow(wx, zx);
+  local function func(v, w, z)
+    assert(require_pyobj(v, w) and z == nil or require_pyobj(z));
+    local vm = ObjPCEX[getmetatable(v)];
+    local vf = vm[vx];
+    if vf then
+      local x = vf(v, w, z);
+      if x ~= NotImplemented then
+        return x;
       end;
     end;
-    f = am[ax];
-    if f then
-      ret = f(a, b, c);
-      if ret ~= NotImplemented then
-        return ret;
-      end;
-    end;
-    if c ~= nil then
-      f = bm[bx];
-      if f then
-        ret = f(b, a);
-        if ret ~= NotImplemented then
-          return ret;
-        end;
-      end;
-    end;
-    Fail_OP_Math_Pow(a, b, ax, c);
+    return op(v, w, z);
   end;
   return func;
 end;
@@ -473,31 +451,31 @@ _OP__Delitem__ = OP_Call(_('__delitem__'));
 _OP__Iter__ = OP_Call(_('__iter__'));
 _OP__Reversed__ = OP_Call(_('__reversed__'));
 _OP__Contains__ = OP_Call(_('__contains__'));
-_OP__Add__ = OP_Math2(_('__add__'), _('__radd__'));
-_OP__Sub__ = OP_Math2(_('__sub__'), _('__rsub__'));
-_OP__Mul__ = OP_Math2(_('__mul__'), _('__rmul__'));
-_OP__Truediv__ = OP_Math2(_('__truediv__'), _('__rtruediv__'));
-_OP__Floordiv__ = OP_Math2(_('__floordiv__'), _('__rfloordiv__'));
-_OP__Mod__ = OP_Math2(_('__mod__'), _('__rmod__'));
-_OP__Divmod__ = OP_Math2(_('__divmod__'), _('__rdivmod__'));
-_OP__Pow__ = OP_Math2_Pow(_('__pow__'), _('__rpow__'));
-_OP__Lshift__ = OP_Math2(_('__lshift__'), _('__rlshift__'));
-_OP__Rshift__ = OP_Math2(_('__rshift__'), _('__rrshift__'));
-_OP__And__ = OP_Math2(_('__and__'), _('__rand__'));
-_OP__Xor__ = OP_Math2(_('__xor__'), _('__rxor__'));
-_OP__Or__ = OP_Math2(_('__or__'), _('__ror__'));
-_OP__Iadd__ = OP_Math3(_('__iadd__'), _('__add__'), _('__radd__'));
-_OP__Isub__ = OP_Math3(_('__isub__'), _('__sub__'), _('__rsub__'));
-_OP__Imul__ = OP_Math3(_('__imul__'), _('__mul__'), _('__rmul__'));
-_OP__Itruediv__ = OP_Math3(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'));
-_OP__Ifloordiv__ = OP_Math3(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'));
-_OP__Imod__ = OP_Math3(_('__imod__'), _('__mod__'), _('__rmod__'));
-_OP__Ipow__ = OP_Math3_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'));
-_OP__Ilshift__ = OP_Math3(_('__ilshift__'), _('__lshift__'), _('__rlshift__'));
-_OP__Irshift__ = OP_Math3(_('__irshift__'), _('__rshift__'), _('__rrshift__'));
-_OP__Iand__ = OP_Math3(_('__iand__'), _('__and__'), _('__rand__'));
-_OP__Ixor__ = OP_Math3(_('__ixor__'), _('__xor__'), _('__rxor__'));
-_OP__Ior__ = OP_Math3(_('__ior__'), _('__or__'), _('__ror__'));
+_OP__Add__ = OP_Math1(_('__add__'), _('__radd__'));
+_OP__Sub__ = OP_Math1(_('__sub__'), _('__rsub__'));
+_OP__Mul__ = OP_Math1(_('__mul__'), _('__rmul__'));
+_OP__Truediv__ = OP_Math1(_('__truediv__'), _('__rtruediv__'));
+_OP__Floordiv__ = OP_Math1(_('__floordiv__'), _('__rfloordiv__'));
+_OP__Mod__ = OP_Math1(_('__mod__'), _('__rmod__'));
+_OP__Divmod__ = OP_Math1(_('__divmod__'), _('__rdivmod__'));
+_OP__Pow__ = OP_Math1_Pow(_('__pow__'), _('__rpow__'));
+_OP__Lshift__ = OP_Math1(_('__lshift__'), _('__rlshift__'));
+_OP__Rshift__ = OP_Math1(_('__rshift__'), _('__rrshift__'));
+_OP__And__ = OP_Math1(_('__and__'), _('__rand__'));
+_OP__Xor__ = OP_Math1(_('__xor__'), _('__rxor__'));
+_OP__Or__ = OP_Math1(_('__or__'), _('__ror__'));
+_OP__Iadd__ = OP_Math2(_('__iadd__'), _('__add__'), _('__radd__'));
+_OP__Isub__ = OP_Math2(_('__isub__'), _('__sub__'), _('__rsub__'));
+_OP__Imul__ = OP_Math2(_('__imul__'), _('__mul__'), _('__rmul__'));
+_OP__Itruediv__ = OP_Math2(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'));
+_OP__Ifloordiv__ = OP_Math2(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'));
+_OP__Imod__ = OP_Math2(_('__imod__'), _('__mod__'), _('__rmod__'));
+_OP__Ipow__ = OP_Math2_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'));
+_OP__Ilshift__ = OP_Math2(_('__ilshift__'), _('__lshift__'), _('__rlshift__'));
+_OP__Irshift__ = OP_Math2(_('__irshift__'), _('__rshift__'), _('__rrshift__'));
+_OP__Iand__ = OP_Math2(_('__iand__'), _('__and__'), _('__rand__'));
+_OP__Ixor__ = OP_Math2(_('__ixor__'), _('__xor__'), _('__rxor__'));
+_OP__Ior__ = OP_Math2(_('__ior__'), _('__or__'), _('__ror__'));
 _OP__Neg__ = OP_Call(_('__neg__'));
 _OP__Pos__ = OP_Call(_('__pos__'));
 _OP__Abs__ = OP_Call(_('__abs__'));
@@ -541,11 +519,19 @@ function isinstance(obj, targets)
   local cls = type(obj);
   local mro = cls.mro();
   assert(type(mro) == list);
+  if type(targets) == tuple then
+    targets = LObj(targets);
+  else
+    targets = {targets};
+  end;
   local _, supercls;
   for _, supercls in pairs(ObjValue[mro]) do
     require_pyobj(supercls);
-    if supercls == targets then
-      return True;
+    local k, target;
+    for k, target in pairs(targets) do
+      if supercls == target then
+        return True;
+      end;
     end;
   end;
   return False;
@@ -555,13 +541,19 @@ function issubclass(cls, targets)
   if type(cls) ~= type then
     error('issubclass() arg 1 must be a class');
   end;
-  local mro = cls.mro();
-  assert(type(mro) == list);
+  if type(targets) == tuple then
+    targets = LObj(targets);
+  else
+    targets = {targets};
+  end;
   local _, supercls;
   for _, supercls in pairs(ObjValue[mro]) do
     require_pyobj(supercls);
-    if supercls == targets then
-      return True;
+    local k, target;
+    for k, target in pairs(targets) do
+      if supercls == target then
+        return True;
+      end;
     end;
   end;
   return False;
@@ -574,7 +566,7 @@ function id(obj)
 end;
 function iter(ret)
   ret = _OP__Iter__(ret);
-  if not isinstance(ret, generator) then
+  if isinstance(ret, generator) == False then
     error(TypeError('iter are only accept generator!'));
   end;
   return ret;
@@ -1091,9 +1083,10 @@ tuple = (function(_M)--(tuple: LuaObject)
     setfenv(__len__, _M);
     function __getitem__(self, x)
       assert(is_pyobj(x));
-      if isinstance(x, int) then
+      if isinstance(x, int) == True then
         return ObjValue[self][(LObj(x) + 1)];
       end;
+      lua.print(isinstance(x, int), x);
       error('Not support unknown type.');
     end;
     setfenv(__getitem__, _M);
@@ -1223,6 +1216,54 @@ bool = (function(_M)--(bool: LuaObject)
   return scope;
 end)(_M);
 bool = setup_basic_class(bool);
+local LuaNum = (function(_M)--(LuaNum: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'LuaNum';
+  function doload()
+    function __add__(self, other)
+      return (ObjValue[self] + ObjValue[other]);
+    end;
+    setfenv(__add__, _M);
+    function __sub__(self, other)
+      return (ObjValue[self] - ObjValue[other]);
+    end;
+    setfenv(__sub__, _M);
+    function __mul__(self, other)
+      return (ObjValue[self] * ObjValue[other]);
+    end;
+    setfenv(__mul__, _M);
+    function __truediv__(self, other)
+      return (ObjValue[self] / ObjValue[other]);
+    end;
+    setfenv(__truediv__, _M);
+    function __radd__(self, other)
+      return (ObjValue[other] + ObjValue[self]);
+    end;
+    setfenv(__radd__, _M);
+    function __rsub__(self, other)
+      return (ObjValue[other] - ObjValue[self]);
+    end;
+    setfenv(__rsub__, _M);
+    function __rmul__(self, other)
+      return (ObjValue[other] * ObjValue[self]);
+    end;
+    setfenv(__rmul__, _M);
+    function __rtruediv__(self, other)
+      return (ObjValue[other] / ObjValue[self]);
+    end;
+    setfenv(__rtruediv__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+LuaNum = setup_basic_class(LuaNum);
 int = (function(_M)--(int: LuaObject)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -1234,15 +1275,115 @@ int = (function(_M)--(int: LuaObject)
   scope.__name__ = 'int';
   function doload()
     function __add__(self, other)
-      return int((ObjValue[self] + ObjValue[other]));
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__add__(self, other));
     end;
     setfenv(__add__, _M);
+    function __sub__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__sub__(self, other));
+    end;
+    setfenv(__sub__, _M);
+    function __mul__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__mul__(self, other));
+    end;
+    setfenv(__mul__, _M);
+    function __truediv__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__truediv__(self, other));
+    end;
+    setfenv(__truediv__, _M);
+    function __radd__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__radd__(self, other));
+    end;
+    setfenv(__radd__, _M);
+    function __rsub__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__rsub__(self, other));
+    end;
+    setfenv(__rsub__, _M);
+    function __rmul__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__rmul__(self, other));
+    end;
+    setfenv(__rmul__, _M);
+    function __rtruediv__(self, other)
+      if isinstance(other, int) == False then
+        return NotImplemented;
+      end;
+      return int(LuaNum.__rtruediv__(self, other));
+    end;
+    setfenv(__rtruediv__, _M);
   end;
   setfenv(doload, scope);
   doload();
   return scope;
 end)(_M);
 int = setup_basic_class(int);
+float = (function(_M)--(float: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'float';
+  function doload()
+    function __add__(self, other)
+      return float(LuaNum.__add__(self, other));
+    end;
+    setfenv(__add__, _M);
+    function __sub__(self, other)
+      return float(LuaNum.__sub__(self, other));
+    end;
+    setfenv(__sub__, _M);
+    function __mul__(self, other)
+      return float(LuaNum.__mul__(self, other));
+    end;
+    setfenv(__mul__, _M);
+    function __truediv__(self, other)
+      return float(LuaNum.__truediv__(self, other));
+    end;
+    setfenv(__truediv__, _M);
+    function __radd__(self, other)
+      return float(LuaNum.__radd__(self, other));
+    end;
+    setfenv(__radd__, _M);
+    function __rsub__(self, other)
+      return float(LuaNum.__rsub__(self, other));
+    end;
+    setfenv(__rsub__, _M);
+    function __rmul__(self, other)
+      return float(LuaNum.__rmul__(self, other));
+    end;
+    setfenv(__rmul__, _M);
+    function __rtruediv__(self, other)
+      return float(LuaNum.__rtruediv__(self, other));
+    end;
+    setfenv(__rtruediv__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+float = setup_basic_class(float);
 dict = (function(_M)--(dict: LuaObject)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -1279,4 +1420,5 @@ for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})) do
 end;
 print(str.mro());
 print(object.mro());
+print(_OP__Truediv__(int(3), int(6)));
 print(str('Hello world!'));

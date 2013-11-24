@@ -294,7 +294,7 @@ def OP_Math1(vx, wx): # binary_op1
 
         if vf:
             if wf and issubclass(type(w), type(v)):
-                x = wf(v, w)
+                x = wf(w, v)
                 if x != NotImplemented: return x
                 wf = nil
 
@@ -302,10 +302,10 @@ def OP_Math1(vx, wx): # binary_op1
             if x != NotImplemented: return x
 
         if wf:
-            x = wf(v, w)
+            x = wf(w, v)
             if x != NotImplemented: return x
 
-        Fail_OP_Math(a, b, ax)
+        Fail_OP_Math(v, w, vx)
 
     return func
 
@@ -324,12 +324,11 @@ def OP_Math2(vx, wx, zx): # binary_iop1
 
     return func
 
-def OP_Math1_Pow(vx, wx, zx): # ternary_op
+def OP_Math1_Pow(vx, wx): # ternary_op?
     def func(v, w, z):
         assert require_pyobj(v, w)
         vm = ObjPCEX[getmetatable(v)]
         wm = ObjPCEX[getmetatable(w)]
-        zm = ObjPCEX[getmetatable(z)]
 
         vf = vm[vx]
         if vm != wm:
@@ -339,30 +338,35 @@ def OP_Math1_Pow(vx, wx, zx): # ternary_op
 
         if vf:
             if wf and issubclass(type(w), type(v)):
-                x = wf(v, w, z)
+                x = wf(w, v, z)
                 if x != NotImplemented: return x
                 wf = nil
-                #TODO: Fixhere, i'm so sleeply
 
             x = vf(v, w, z)
             if x != NotImplemented: return x
 
         if wf:
-            x = wf(v, w, z)
+            x = wf(w, v, z)
             if x != NotImplemented: return x
 
-        zf = zm[zx]
-        if zf:
-            if vf == zf or wf == zf:
-                zf = nil
-
-            if zf:
-                x = zf(x, w, z)
-
-        Fail_OP_Math(a, b, ax)
+        Fail_OP_Math_Pow(v, w, vx, z)
 
     return func
 
+def OP_Math2_Pow(vx, wx, zx): # ternary_op (with i)
+    op = OP_Math1_Pow(wx, zx)
+    def func(v, w, z):
+        assert require_pyobj(v, w) and (z is nil or require_pyobj(z))
+        vm = ObjPCEX[getmetatable(v)]
+
+        vf = vm[vx]
+        if vf:
+            x = vf(v, w, z)
+            if x != NotImplemented: return x
+
+        return op(v, w, z)
+
+    return func
 
 global _OP__Is__, _OP__IsNot__
 def  _OP__Is__(a, b):
@@ -511,7 +515,7 @@ def isinstance(obj, targets):
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
         for k, target in pairs(targets):
-            if supercls == targets:
+            if supercls == target:
                 return True
 
     return False
@@ -530,7 +534,7 @@ def issubclass(cls, targets):
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
         for k, target in pairs(targets):
-            if supercls == targets:
+            if supercls == target:
                 return True
     return False
 
@@ -542,7 +546,7 @@ def id(obj):
 
 def iter(ret):
     ret = _OP__Iter__(ret)
-    if not isinstance(ret, generator):
+    if isinstance(ret, generator) == False:
         error(TypeError("iter are only accept generator!"))
 
     return ret
@@ -837,9 +841,10 @@ class tuple(LuaObject):
 
     def __getitem__(self, x):
         assert is_pyobj(x)
-        if isinstance(x, int):
+        if isinstance(x, int) == True:
             return ObjValue[self][LObj(x) + 1]
 
+        lua.print(isinstance(x, int), x)
         error("Not support unknown type.")
 
     def __repr__(self):
@@ -926,30 +931,94 @@ class bool(LuaObject):
         elif value == false:
             return str("False")
 
-def require_num_type(x):
-    return isinstane(x, tuple({int, float}))
+@setup_basic_class
+class LuaNum(LuaObject):
+    def __add__(self, other):
+        return ObjValue[self] + ObjValue[other]
 
-def con(a, b, ret):
-    at = type(a)
-    bt = type(b)
+    def __sub__(self, other):
+        return ObjValue[self] - ObjValue[other]
 
-    if is_float(ret):
-        bt()
+    def __mul__(self, other):
+        return ObjValue[self] * ObjValue[other]
 
+    def __truediv__(self, other):
+        return ObjValue[self] / ObjValue[other]
 
-    if isinstance(a, int) and :
-        a = 1
+    def __radd__(self, other):
+        return ObjValue[other] + ObjValue[self]
 
+    def __rsub__(self, other):
+        return ObjValue[other] - ObjValue[self]
+
+    def __rmul__(self, other):
+        return ObjValue[other] * ObjValue[self]
+
+    def __rtruediv__(self, other):
+        return ObjValue[other] / ObjValue[self]
 
 global int
 @setup_basic_class
-class num(LuaObject):
+class int(LuaObject):
     def __add__(self, other):
-        assert require_num_type(other)
-        return int(ObjValue[self] + ObjValue[other])
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__add__(self, other))
 
     def __sub__(self, other):
-        return int(ObjValue[self] + ObjValue[other])
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__sub__(self, other))
+
+    def __mul__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__mul__(self, other))
+
+    def __truediv__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__truediv__(self, other))
+
+    def __radd__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__radd__(self, other))
+
+    def __rsub__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__rsub__(self, other))
+
+    def __rmul__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__rmul__(self, other))
+
+    def __rtruediv__(self, other):
+        if isinstance(other, int) == False: return NotImplemented
+        return int(LuaNum.__rtruediv__(self, other))
+
+
+global float
+@setup_basic_class
+class float(LuaObject):
+    def __add__(self, other):
+        return float(LuaNum.__add__(self, other))
+
+    def __sub__(self, other):
+        return float(LuaNum.__sub__(self, other))
+
+    def __mul__(self, other):
+        return float(LuaNum.__mul__(self, other))
+
+    def __truediv__(self, other):
+        return float(LuaNum.__truediv__(self, other))
+
+    def __radd__(self, other):
+        return float(LuaNum.__radd__(self, other))
+
+    def __rsub__(self, other):
+        return float(LuaNum.__rsub__(self, other))
+
+    def __rmul__(self, other):
+        return float(LuaNum.__rmul__(self, other))
+
+    def __rtruediv__(self, other):
+        return float(LuaNum.__rtruediv__(self, other))
 
 global dict
 @setup_basic_class
@@ -981,5 +1050,5 @@ for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
 
 print(str.mro())
 print(object.mro())
-
+print(_OP__Truediv__(int(3), int(6)))
 print(str("Hello world!"))
