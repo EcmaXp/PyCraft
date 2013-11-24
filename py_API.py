@@ -782,9 +782,11 @@ class dict(LuaObject):
 
 ## inital Code
 def inital():
+    global InitalBuiltinTypes
     for cls, _ in pairs(InitalBuiltinTypes):
         register_builtins_class(cls)
         BuiltinTypes[cls] = true
+    InitalBuiltinTypes = nil
 
     _M["NotImplemented"] = NotImplementedType()
     _M["Ellipsis"] = EllipsisType()

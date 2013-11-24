@@ -1060,16 +1060,17 @@ end)(_M);
 dict = setup_basic_class(dict);
 local function inital()
   local cls, _;
-  for cls, _ in pairs(InitalBuiltinTypes) do -- [LINE 785]
-    register_builtins_class(cls); -- [LINE 786]
-    BuiltinTypes[cls] = true; -- [LINE 787]
+  for cls, _ in pairs(InitalBuiltinTypes) do -- [LINE 786]
+    register_builtins_class(cls); -- [LINE 787]
+    BuiltinTypes[cls] = true; -- [LINE 788]
   end;
-  _M['NotImplemented'] = NotImplementedType(); -- [LINE 789]
-  _M['Ellipsis'] = EllipsisType(); -- [LINE 790]
-  _M['None'] = NoneType(); -- [LINE 791]
-  _M['True'] = bool(true); -- [LINE 792]
-  _M['False'] = bool(false); -- [LINE 793]
-  return true; -- [LINE 795]
+  InitalBuiltinTypes = nil; -- [LINE 789]
+  _M['NotImplemented'] = NotImplementedType(); -- [LINE 791]
+  _M['Ellipsis'] = EllipsisType(); -- [LINE 792]
+  _M['None'] = NoneType(); -- [LINE 793]
+  _M['True'] = bool(true); -- [LINE 794]
+  _M['False'] = bool(false); -- [LINE 795]
+  return true; -- [LINE 797]
 end;
-inited = inital(); -- [LINE 797]
-print(str('Hello world!')); -- [LINE 801]
+inited = inital(); -- [LINE 799]
+print(str('Hello world!')); -- [LINE 803]
