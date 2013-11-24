@@ -747,6 +747,8 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         return self.visit_If(node)
 
     def visit_For(self, node):
+        # Parse the Assign. (lua are don't allow access loop's value.)
+
         vtemp = Name(self.get_tvar(), Load())
         node_target = node.target
         node.target = vtemp
@@ -1466,13 +1468,15 @@ def lua_lite_compile(code, **kwargs):
 def lua_full_compile(code, **kwargs):
     return lua_compile(code, CTYPE_FULL, **kwargs)
 
-def execute_lite(runfile):
+class ExecuteLite_LuaException(Exception):
+    pass
+
+def execute_lite(runfile, cwd=None):
     if os.sep in os.path.normpath(runfile):
         # FIXME LATER!
         raise RuntimeError("Can't guess lua pattern of error")
 
     Lua_TB_Start = "stack traceback:"
-
     Py_TB_Format = [
         # 0, Traceback (most recent call last):
         'Traceback (most recent call last):',
@@ -1499,13 +1503,16 @@ def execute_lite(runfile):
 
     finfo = {}
     def init_fileinfo(filename):
+        nonlocal cwd
+
         if filename not in finfo:
             flines = [None]
             finfo[filename] = flines
 
             realno = None
 
-            with open(filename, 'r') as fp:
+            cwd = cwd or os.getcwd()
+            with open(os.path.join(cwd, filename), 'r') as fp:
                 for line in fp:
                     line = line.rstrip('\r\n')
                     if "-- [LINE " in line:
@@ -1517,7 +1524,7 @@ def execute_lite(runfile):
                         a, b, c = line.partition("-- [DEBUG; ")
                         d, e, f = c.partition("] --")
                         assert not a and b and c and e and not f
-                        flines[0] = d
+                        flines[0] = os.path.abspath(os.path.join(cwd, d))
 
                     flines.append(realno)
 
@@ -1527,9 +1534,11 @@ def execute_lite(runfile):
     def get_lineno(filename, lineno):
         return finfo[filename][lineno]
 
-    def parse_tb(line, ignore_realno=False):
+    def parse_tb(line, is_first=False, ignore_realno=False):
         trace, sep, detail = line.partition(": ")
         filename, have_lineno, lineno = trace.partition(":")
+        if is_first and trace == "[C]" and detail == "?":
+            return
 
         if not have_lineno:
             fmt = Py_TB_Format[BASIC + bool(detail)]
@@ -1548,12 +1557,16 @@ def execute_lite(runfile):
 
                 if realno and not ignore_realno:
                     line = linecache.getline(fromfile, realno)
+                    line = line.strip()
+
+                    if line.endswith("#--[DEBUG; ERROR POINT]--#"):
+                        return False
 
                     fmt = Py_TB_Format[BASIC + HAVE_LINE + bool(detail)]
                     print(fmt.format(fromfile, realno, detail))
 
                     fmt = Py_TB_Format[-2]
-                    print(fmt.format(line.strip()))
+                    print(fmt.format(line))
                     return
 
         fmt = Py_TB_Format[BASIC + HAVE_LINE + bool(detail)]
@@ -1590,38 +1603,43 @@ def execute_lite(runfile):
             else:
                 print(line)
 
-        for tb in reversed(tbs):
-            parse_tb(tb)
+        for no, tb in enumerate(reversed(tbs)):
+            if parse_tb(tb, is_first=(not no)) is False:
+                break
 
-        if tbline:
-            if tbs:
-                tb = tbline.partition(": ")[2]
-                tb, sep, detail = tb.partition(": ")
-                parse_tb(tb)
+        detail = "Unknown STDERR are captured."
 
-                fmt = Py_TB_Format[-1]
-                print(fmt.format("E", detail))
-            else:
-                tb = tbline.partition(": ")[2]
-                tb, sep, detail = tb.partition(": ")
-                assert sep, (tb, sep, detail)
-                parse_tb(tb, ignore_realno=True)
-                filename, sep, lineno = tb.partition(":")
-                lineno = int(lineno)
-                assert sep
+        if tbs:
+            tb = tbline.partition(": ")[2]
+            tb, sep, detail = tb.partition(": ")
+            # parse_tb(tb)
 
-                line = linecache.getline(filename, lineno)
+            fmt = Py_TB_Format[-1]
+            print(fmt.format("E", detail))
+        elif tbline:
+            tb = tbline.partition(": ")[2]
+            tb, sep, detail = tb.partition(": ")
+            assert sep, (tb, sep, detail)
+            parse_tb(tb, ignore_realno=True)
+            filename, sep, lineno = tb.partition(":")
+            lineno = int(lineno)
+            assert sep
 
-                fmt = TB_FORMAT[-2]
-                print(fmt.format(line))
+            line = linecache.getline(filename, lineno)
 
-                fmt = TB_FORMAT[-1]
-                print(fmt.format("SyntexError", detail))
+            fmt = Py_TB_Format[-2]
+            print(fmt.format(line))
+
+            fmt = Py_TB_Format[-1]
+            print(fmt.format("SyntexError", detail))
+
+        raise ExecuteLite_LuaException(detail)
 
 def compile_and_run_py_API():
     filename_api = "py_API"
     filename_api_py = filename_api + ".py"
     filename_api_lua = filename_api + ".lua"
+    filename_rel = "py"
 
     with open(filename_api_py) as fp:
         code = fp.read()
@@ -1642,7 +1660,14 @@ def compile_and_run_py_API():
             with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1\py", "w") as fp:
                 fp.write(compiled)
 
-    execute_lite(filename_api_lua)
+    try:
+        execute_lite(filename_api_lua)
+    except ExecuteLite_LuaException:
+        pass
+    else:
+        lite_compiled = lua_lite_compile(code, debug=False)
+        with open(filename_rel + "_latest", "w") as fp:
+            fp.write(lite_compiled)
 
 def main():
     compile_and_run_py_API()

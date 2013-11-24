@@ -1,0 +1,1094 @@
+local _M = getfenv(1);
+if pyscripter then
+  exit(__import__('pc').main());
+end;
+
+if not getmetatable(_M) or _G == _M then
+  _M = setmetatable({['_G'] = _G}, {['__index'] = _G});
+  setfenv(1, _M);
+end;
+lua = {};
+lua.len = (function(obj) return #obj; end);
+lua.concat = (function(...) return table.concat({...}); end);
+lua.write = write or io.write;
+local key, value;
+for key, value in pairs(_G) do
+  lua[key] = value;
+end;
+local PY_OBJ_TAG = '#';
+local LUA_OBJ_TAG = '@';
+local TAG = '[PY]';
+local ObjLastID = 0;
+local inited = False;
+local builtins = 'builtins';
+local ObjID = setmetatable({}, {['__mode'] = 'k'});
+local ObjValue = setmetatable({}, {['__mode'] = 'k'});
+local ObjPCEX = setmetatable({}, {['__mode'] = 'k'});
+local Obj_FromID = setmetatable({}, {['__mode'] = 'v'});
+local BuiltinTypes = setmetatable({}, {['__mode'] = 'k'});
+local InitalBuiltinTypes = {};
+local builtin_methods = {'__new__', '__init__', '__del__', '__repr__', '__str__', '__bytes__', '__format__', '__lt__', '__le__', '__eq__', '__ne__', '__gt__', '__ge__', '__hash__', '__bool__', '__getattr__', '__getattribute__', '__setattr__', '__delattr__', '__dir__', '__get__', '__set__', '__delete__', '__slots__', '__call__', '__len__', '__getitem__', '__setitem__', '__delitem__', '__iter__', '__reversed__', '__contains__', '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__', '__mod__', '__divmod__', '__pow__', '__lshift__', '__rshift__', '__and__', '__xor__', '__or__', '__radd__', '__rsub__', '__rmul__', '__rtruediv__', '__rfloordiv__', '__rmod__', '__rdivmod__', '__rpow__', '__rlshift__', '__rrshift__', '__rand__', '__rxor__', '__ror__', '__iadd__', '__isub__', '__imul__', '__itruediv__', '__ifloordiv__', '__imod__', '__ipow__', '__ilshift__', '__irshift__', '__iand__', '__ixor__', '__ior__', '__neg__', '__pos__', '__abs__', '__invert__', '__complex__', '__int__', '__float__', '__round__', '__index__', '__enter__', '__exit__', '__lua__'};
+local builtin_methods_rev = {};
+local k, v;
+for k, v in pairs(builtin_methods) do
+  builtin_methods_rev[v] = k;
+end;
+assert(builtin_methods[42] == '__rshift__');
+assert(builtin_methods_rev['__pos__'] == 72);
+local error = nil;
+local function is_float(num)
+  if lua.type(num) ~= 'number' then
+    error('This is not number', 2);
+  end;
+  return math.floor(num) ~= num;
+end;
+local function is_pyobj(obj)
+  return ObjID[obj] ~= nil;
+end;
+local function PObj(obj)
+  if is_pyobj(obj) then
+    return obj;
+  else
+    return LuaObject(obj);
+  end;
+end;
+local function LObj(obj)
+  if is_pyobj(obj) then
+    return _OP__Lua__(obj);
+  else
+    return obj;
+  end;
+end;
+local function require_pyobj(...)
+  local objs = {...};
+  local idx, obj;
+  for idx, obj in pairs(objs) do
+    if not is_pyobj(obj) then
+      lua.print(lua.type(obj), obj);
+      error('Require python object.');
+    end;
+  end;
+  return true;
+end;
+local function register_pyobj(obj)
+  ObjLastID = (ObjLastID + 1);
+  local obj_id = ObjLastID;
+  ObjID[obj] = obj_id;
+  Obj_FromID[obj_id] = obj;
+  return obj;
+end;
+function error(msg, level)
+  if level == nil then
+    level = 1;
+  end;
+  if is_pyobj(msg) then
+    msg = LObj(msg);
+  end;
+  level = (level + 1);
+  msg = lua.concat(TAG, ' ', tostring(msg));
+  lua.error(msg, level);
+end;
+local function require_args(...)
+  local args = {...};
+  local key, value;
+  for key, value in pairs(args) do
+    if value == nil then
+      error('SystemError: Not Enough Item');
+    end;
+  end;
+  return True;
+end;
+local function nonrequire_args(...)
+  local args = {...};
+  local key, value;
+  for key, value in pairs(args) do
+    if value ~= nil then
+      error('SystemError: Not Enough Item');
+    end;
+  end;
+  return True;
+end;
+function is_float(num)
+  if lua.type(num) ~= 'number' then
+    error('This is not number', 2);
+  end;
+  return math.floor(num) ~= num;
+end;
+local function setup_base_class(cls)
+  local pcex = {};
+  local k, v;
+  for k, v in pairs(cls) do
+    local idx = builtin_methods_rev[k];
+    if idx ~= nil then
+      pcex[idx] = v;
+    end;
+  end;
+  ObjPCEX[cls] = pcex;
+  InitalBuiltinTypes[cls] = false;
+  register_pyobj(cls);
+  return cls;
+end;
+local function setup_basic_class(cls)
+  setup_base_class(cls);
+  setmetatable(cls, type);
+  return cls;
+end;
+local function setup_hide_class(cls)
+  InitalBuiltinTypes[cls] = nil;
+  return cls;
+end;
+local function register_builtins_class(cls)
+  local idx = 1;
+  local mro = {};
+  mro[idx] = cls;
+  idx = (idx + 1);
+  local bases = rawget(cls, '__bases__');
+  if bases ~= nil then
+    for i = #bases, 1, -1 do --;
+    if true then
+      local base = bases[i];
+      if InitalBuiltinTypes[base] ~= nil then
+        mro[idx] = base;
+        idx = (idx + 1);
+      end;
+    end;
+    end;
+  end;
+  if cls ~= object then
+    mro[idx] = object;
+    idx = (idx + 1);
+  end;
+  rawset(cls, '__bases__', nil);
+  rawset(cls, '__name__', str(rawget(cls, '__name__')));
+  rawset(cls, '__module__', str('builtins'));
+  rawset(cls, '__mro__', tuple(mro));
+  InitalBuiltinTypes[cls] = true;
+  return cls;
+end;
+local function Fail_OP(a, ax)
+  error(lua.concat(LObj(repr(a)), ' are not support ', builtin_methods[ax]));
+end;
+local function Fail_OP_Raw(a, raw_ax)
+  error(lua.concat(LObj(repr(a)), ' are not support ', raw_ax));
+end;
+local function Fail_OP_Math_Raw(a, b, raw_ax)
+  error(lua.concat('Not support ', LObj(repr(a)), ' ', raw_ax, ' ', LObj(repr(b))));
+end;
+local function Fail_OP_Math(a, b, ax, extra)
+  if extra == nil then
+    extra = '';
+  else
+    extra = lua.concat(' ', extra);
+  end;
+  error(lua.concat('Not support ', LObj(repr(a)), ' ', builtin_methods[ax], ' ', LObj(repr(b)), extra));
+end;
+local function Fail_OP_Math_Pow(a, b, ax, c)
+  local extra = '';
+  if c then
+    extra = lua.concat('% ', LObj(repr(c)));
+  end;
+  Fail_OP_Math(a, b, ax, c);
+end;
+local function OP_Call(ax)
+  local function func(a, ...)
+    local args = {...};
+    assert(require_pyobj(a));
+    local f = ObjPCEX[getmetatable(a)][ax];
+    if f then
+      return f(a, ...);
+    end;
+    Fail_OP(a, ax);
+  end;
+  return func;
+end;
+local function OP_Math2(ax, bx)
+  local function func(a, b)
+    assert(require_pyobj(a, b));
+    local am = ObjPCEX[getmetatable(a)];
+    local bm = ObjPCEX[getmetatable(b)];
+    local f = am[ax];
+    if f then
+      local ret = f(a, b);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    f = bm[bx];
+    if f then
+      ret = f(b, a);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    Fail_OP_Math(a, b, ax);
+  end;
+  return func;
+end;
+local function OP_Math3(cx, ax, bx)
+  local function func(a, b)
+    assert(require_pyobj(a, b));
+    local am = ObjPCEX[getmetatable(a)];
+    local bm = ObjPCEX[getmetatable(b)];
+    local is_n = isinstance(a, int) == True or isinstance(b, float) == True;
+    if is_n then
+      local f = am[ax];
+      if f then
+        local ret = f(a, b);
+        if ret ~= NotImplemented then
+          return ret;
+        end;
+      end;
+    end;
+    f = am[cx];
+    if f then
+      ret = f(a, b);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    if not is_n then
+      f = am[ax];
+      if f then
+        ret = f(a, b);
+        if ret ~= NotImplemented then
+          return ret;
+        end;
+      end;
+    end;
+    f = bm[bx];
+    if f then
+      ret = f(b, a);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    Fail_OP_Math(a, b, cx);
+  end;
+  return func;
+end;
+local function OP_Math2_Pow(ax, bx)
+  local function func(a, b, c)
+    assert(require_pyobj(a, b));
+    assert(require_pyobj(c) or c == nil);
+    local am = ObjPCEX[getmetatable(a)];
+    local bm = ObjPCEX[getmetatable(b)];
+    local f = am[ax];
+    if f then
+      local ret = f(a, b, c);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    if c ~= nil then
+      f = bm[bx];
+      if f then
+        ret = f(b, a);
+        if ret ~= NotImplemented then
+          return ret;
+        end;
+      end;
+    end;
+    Fail_OP_Math_Pow(a, b, ax, c);
+  end;
+  return func;
+end;
+local function OP_Math3_Pow(cx, ax, bx)
+  local function func(a, b, c)
+    assert(require_pyobj(a, b));
+    assert(require_pyobj(c) or c == nil);
+    local am = ObjPCEX[getmetatable(a)];
+    local bm = ObjPCEX[getmetatable(b)];
+    local f = am[cx];
+    if f then
+      local ret = f(a, b, c);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    f = am[ax];
+    if f then
+      ret = f(a, b, c);
+      if ret ~= NotImplemented then
+        return ret;
+      end;
+    end;
+    if c ~= nil then
+      f = bm[bx];
+      if f then
+        ret = f(b, a);
+        if ret ~= NotImplemented then
+          return ret;
+        end;
+      end;
+    end;
+    Fail_OP_Math_Pow(a, b, ax, c);
+  end;
+  return func;
+end;
+function _OP__Is__(a, b)
+  require_pyobj(a, b);
+  return ObjID[a] == ObjID[b];
+end;
+function _OP__IsNot__(a, b)
+  return not _OP__Is__(a, b);
+end;
+local function _(name)
+  return builtin_methods_rev[name];
+end;
+
+_OP__New__ = OP_Call(_('__new__'));
+_OP__Init__ = OP_Call(_('__init__'));
+_OP__Del__ = OP_Call(_('__del__'));
+_OP__Repr__ = OP_Call(_('__repr__'));
+_OP__Str__ = OP_Call(_('__str__'));
+_OP__Bytes__ = OP_Call(_('__bytes__'));
+_OP__Format__ = OP_Call(_('__format__'));
+_OP__Lt__ = OP_Call(_('__lt__'));
+_OP__Le__ = OP_Call(_('__le__'));
+_OP__Eq__ = OP_Call(_('__eq__'));
+_OP__Ne__ = OP_Call(_('__ne__'));
+_OP__Gt__ = OP_Call(_('__gt__'));
+_OP__Ge__ = OP_Call(_('__ge__'));
+_OP__Hash__ = OP_Call(_('__hash__'));
+_OP__Bool__ = OP_Call(_('__bool__'));
+_OP__Getattr__ = OP_Call(_('__getattr__'));
+_OP__Getattribute__ = OP_Call(_('__getattribute__'));
+_OP__Setattr__ = OP_Call(_('__setattr__'));
+_OP__Delattr__ = OP_Call(_('__delattr__'));
+_OP__Dir__ = OP_Call(_('__dir__'));
+_OP__Get__ = OP_Call(_('__get__'));
+_OP__Set__ = OP_Call(_('__set__'));
+_OP__Delete__ = OP_Call(_('__delete__'));
+_OP__Slots__ = OP_Call(_('__slots__'));
+_OP__Call__ = OP_Call(_('__call__'));
+_OP__Len__ = OP_Call(_('__len__'));
+_OP__Getitem__ = OP_Call(_('__getitem__'));
+_OP__Setitem__ = OP_Call(_('__setitem__'));
+_OP__Delitem__ = OP_Call(_('__delitem__'));
+_OP__Iter__ = OP_Call(_('__iter__'));
+_OP__Reversed__ = OP_Call(_('__reversed__'));
+_OP__Contains__ = OP_Call(_('__contains__'));
+_OP__Add__ = OP_Math2(_('__add__'), _('__radd__'));
+_OP__Sub__ = OP_Math2(_('__sub__'), _('__rsub__'));
+_OP__Mul__ = OP_Math2(_('__mul__'), _('__rmul__'));
+_OP__Truediv__ = OP_Math2(_('__truediv__'), _('__rtruediv__'));
+_OP__Floordiv__ = OP_Math2(_('__floordiv__'), _('__rfloordiv__'));
+_OP__Mod__ = OP_Math2(_('__mod__'), _('__rmod__'));
+_OP__Divmod__ = OP_Math2(_('__divmod__'), _('__rdivmod__'));
+_OP__Pow__ = OP_Math2_Pow(_('__pow__'), _('__rpow__'));
+_OP__Lshift__ = OP_Math2(_('__lshift__'), _('__rlshift__'));
+_OP__Rshift__ = OP_Math2(_('__rshift__'), _('__rrshift__'));
+_OP__And__ = OP_Math2(_('__and__'), _('__rand__'));
+_OP__Xor__ = OP_Math2(_('__xor__'), _('__rxor__'));
+_OP__Or__ = OP_Math2(_('__or__'), _('__ror__'));
+_OP__Iadd__ = OP_Math3(_('__iadd__'), _('__add__'), _('__radd__'));
+_OP__Isub__ = OP_Math3(_('__isub__'), _('__sub__'), _('__rsub__'));
+_OP__Imul__ = OP_Math3(_('__imul__'), _('__mul__'), _('__rmul__'));
+_OP__Itruediv__ = OP_Math3(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'));
+_OP__Ifloordiv__ = OP_Math3(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'));
+_OP__Imod__ = OP_Math3(_('__imod__'), _('__mod__'), _('__rmod__'));
+_OP__Ipow__ = OP_Math3_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'));
+_OP__Ilshift__ = OP_Math3(_('__ilshift__'), _('__lshift__'), _('__rlshift__'));
+_OP__Irshift__ = OP_Math3(_('__irshift__'), _('__rshift__'), _('__rrshift__'));
+_OP__Iand__ = OP_Math3(_('__iand__'), _('__and__'), _('__rand__'));
+_OP__Ixor__ = OP_Math3(_('__ixor__'), _('__xor__'), _('__rxor__'));
+_OP__Ior__ = OP_Math3(_('__ior__'), _('__or__'), _('__ror__'));
+_OP__Neg__ = OP_Call(_('__neg__'));
+_OP__Pos__ = OP_Call(_('__pos__'));
+_OP__Abs__ = OP_Call(_('__abs__'));
+_OP__Invert__ = OP_Call(_('__invert__'));
+_OP__Complex__ = OP_Call(_('__complex__'));
+_OP__Int__ = OP_Call(_('__int__'));
+_OP__Float__ = OP_Call(_('__float__'));
+_OP__Round__ = OP_Call(_('__round__'));
+_OP__Index__ = OP_Call(_('__index__'));
+_OP__Enter__ = OP_Call(_('__enter__'));
+_OP__Exit__ = OP_Call(_('__exit__'));
+_OP__Lua__ = OP_Call(_('__lua__'));
+function repr(obj)
+  if is_pyobj(obj) then
+    return _OP__Repr__(obj);
+  else
+    return lua.concat(LUA_OBJ_TAG, '(', tostring(obj), ')');
+  end;
+end;
+function print(...)
+  local args = {...};
+  local arr = {};
+  local idx = 1;
+  local _, arg;
+  for _, arg in pairs(args) do
+    if is_pyobj(arg) then
+      arg = str(arg);
+    else
+      arg = repr(arg);
+    end;
+    arg = LObj(arg);
+    arr[idx] = arg;
+    idx = (idx + 1);
+  end;
+  local data = table.concat(arr, ' ');
+  data = lua.concat(data, '\n');
+  lua.write(data);
+end;
+function isinstance(obj, targets)
+  require_pyobj(obj);
+  local cls = type(obj);
+  local mro = cls.mro();
+  assert(type(mro) == list);
+  local _, supercls;
+  for _, supercls in pairs(ObjValue[mro]) do
+    require_pyobj(supercls);
+    if supercls == targets then
+      return True;
+    end;
+  end;
+  return False;
+end;
+function issubclass(cls, targets)
+  require_pyobj(obj);
+  if type(cls) ~= type then
+    error('issubclass() arg 1 must be a class');
+  end;
+  local mro = cls.mro();
+  assert(type(mro) == list);
+  local _, supercls;
+  for _, supercls in pairs(ObjValue[mro]) do
+    require_pyobj(supercls);
+    if supercls == targets then
+      return True;
+    end;
+  end;
+  return False;
+end;
+function id(obj)
+  if is_pyobj(obj) then
+    return int(ObjID[obj]);
+  end;
+  Fail_OP_Raw(obj, '__id!');
+end;
+function len(obj)
+  return _OP__Len__(obj);
+end;
+
+_ = nil;
+object = (function(_M)--(object)
+  local scope = setmetatable({}, {__index=_M})
+;scope.__name__ = 'object';
+  function doload()
+    function __init__(self)
+    end;
+    setfenv(__init__, _M);
+    function __call(self, ...)
+      local args = {...};
+      return _OP__Call__(self, ...);
+    end;
+    setfenv(__call, _M);
+    function __index(self, key)
+      return _OP__Getattribute__(self, key);
+    end;
+    setfenv(__index, _M);
+    function __newindex(self, key, value)
+      lua.print('TEST?', type(self), key, value);
+      local k, v;
+      for k, v in pairs(BuiltinTypes) do
+        lua.print(k, ObjPCEX[k][builtin_methods_rev['__setattr__']]);
+      end;
+      return _OP__Setattr__(self, key, value);
+    end;
+    setfenv(__newindex, _M);
+    function __tostring(self)
+      return lua.concat(PY_OBJ_TAG, '(', LObj(repr(self)), ')');
+    end;
+    setfenv(__tostring, _M);
+    function __new__(cls, ...)
+      local args = {...};
+      local instance = {};
+      instance = register_pyobj(instance);
+      lua.setmetatable(instance, cls);
+      _OP__Init__(instance, ...);
+      return instance;
+    end;
+    setfenv(__new__, _M);
+    function __getattribute__(self, k)
+      local v = rawget(self, k);
+      if v ~= nil then
+        return v;
+      end;
+      local mt = getmetatable(self);
+      v = rawget(mt, k);
+      if v ~= nil then
+        if lua.type(v) == 'function' then
+          return (function(...) return v(self, unpack({...})); end);
+        else
+          return v;
+        end;
+      end;
+      error(lua.concat("Not found '", k, "' attribute."));
+    end;
+    setfenv(__getattribute__, _M);
+    function __setattr__(self, key, value)
+      local cls = type(self);
+      if BuiltinTypes[cls] and inited then
+        local basemsg = "can't set attributes of built-in/extension type ";
+        error(TypeError(lua.concat(basemsg, LObj(repr(cls.__name__)))));
+      end;
+      rawset(self, key, value);
+    end;
+    setfenv(__setattr__, _M);
+    function __delattr__(self, key, value)
+      object.__setattr__(self, key, nil);
+    end;
+    setfenv(__delattr__, _M);
+    function __str__(self)
+      return _OP__Repr__(self);
+    end;
+    setfenv(__str__, _M);
+    function __repr__(self)
+      local mtable = getmetatable(self);
+      return str(lua.concat('<object ', LObj(mtable.__name__), ' at ', LObj(id(self)), '>'));
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+object = setup_base_class(object);
+type = (function(_M)--(type: object)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({object}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {object};
+  scope.__name__ = 'type';
+  function doload()
+    function __call__(cls, ...)
+      local args = {...};
+      local instance = cls.__new__(cls, ...);
+      register_pyobj(instance);
+      return instance;
+    end;
+    setfenv(__call__, _M);
+    function __repr__(cls)
+      return str(lua.concat("<class '", LObj(cls.__name__), "'>"));
+    end;
+    setfenv(__repr__, _M);
+    function mro(cls)
+      return list(ObjValue[cls.__mro__]);
+    end;
+    setfenv(mro, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+type = setup_base_class(type);
+local ptype = (function(_M)--(ptype: type)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({type}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {type};
+  scope.__name__ = 'ptype';
+  function doload()
+    function __call__(cls, ...)
+      local args = {...};
+      if lua.len(args) == 1 then
+        require_pyobj(args[1]);
+        return getmetatable(args[1]);
+      elseif lua.len(args) == 3 then
+      else
+        error('Unexcepted arguments.');
+      end;
+    end;
+    setfenv(__call__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+ptype = setup_base_class(ptype);
+ptype = setup_hide_class(ptype);
+setmetatable(object, type);
+setmetatable(type, ptype);
+setmetatable(ptype, ptype);
+
+BaseException = (function(_M)--(BaseException: object)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({object}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {object};
+  scope.__name__ = 'BaseException';
+  function doload()
+    args = nil;
+    function __new__(cls, ...)
+      local args = {...};
+      local param = tuple(args);
+      local instance = object.__new__(cls);
+      rawset(instance, 'args', param);
+      _OP__Init__(instance, param);
+      return instance;
+    end;
+    setfenv(__new__, _M);
+    function __str__(self)
+      local length = LObj(len(self.args));
+      if length == 0 then
+        return str('');
+      elseif length == 1 then
+        return str(_OP__Getitem__(self.args, int(0)));
+      end;
+    end;
+    setfenv(__str__, _M);
+    function __repr__(self)
+      local excname = LObj(type(self).__name__);
+      return lua.concat(excname, repr(self.args));
+    end;
+    setfenv(__repr__, _M);
+    function __lua__(self)
+      local excname = LObj(type(self).__name__);
+      local value = str(self);
+      if LObj(len(value)) > 0 then
+        return lua.concat(excname, ': ', LObj(value));
+      else
+        return lua.concat(excname);
+      end;
+    end;
+    setfenv(__lua__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+BaseException = setup_basic_class(BaseException);
+Exception = (function(_M)--(Exception: BaseException)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BaseException}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {BaseException};
+  scope.__name__ = 'Exception';
+  function doload()
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+Exception = setup_basic_class(Exception);
+TypeError = (function(_M)--(TypeError: Exception, BaseException)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BaseException, Exception}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {Exception, BaseException};
+  scope.__name__ = 'TypeError';
+  function doload()
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+TypeError = setup_basic_class(TypeError);
+UnstableException = (function(_M)--(UnstableException: Exception, BaseException)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BaseException, Exception}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {Exception, BaseException};
+  scope.__name__ = 'UnstableException';
+  function doload()
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+UnstableException = setup_basic_class(UnstableException);
+
+local BuiltinConstType = (function(_M)--(BuiltinConstType: object)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({object}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {object};
+  scope.__name__ = 'BuiltinConstType';
+  function doload()
+    function __new__(cls, ...)
+      local args = {...};
+      if not inited then
+        local instance = object.__new__(cls, ...);
+        _OP__Init__(instance, ...);
+        return instance;
+      end;
+      return cls._get_singleton();
+    end;
+    setfenv(__new__, _M);
+    function _get_singleton(cls)
+      error('Not defined.');
+    end;
+    setfenv(_get_singleton, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+BuiltinConstType = setup_basic_class(BuiltinConstType);
+local NotImplementedType = (function(_M)--(NotImplementedType: BuiltinConstType)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BuiltinConstType}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {BuiltinConstType};
+  scope.__name__ = 'NotImplementedType';
+  function doload()
+    function _get_singleton(cls)
+      return NotImplemented;
+    end;
+    setfenv(_get_singleton, _M);
+    function __repr__(self)
+      return str('NotImplemented');
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+NotImplementedType = setup_basic_class(NotImplementedType);
+local EllipsisType = (function(_M)--(EllipsisType: BuiltinConstType)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BuiltinConstType}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {BuiltinConstType};
+  scope.__name__ = 'EllipsisType';
+  function doload()
+    function _get_singleton(self)
+      return Ellipsis;
+    end;
+    setfenv(_get_singleton, _M);
+    function __repr__(self)
+      return str('Ellipsis');
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+EllipsisType = setup_basic_class(EllipsisType);
+local NoneType = (function(_M)--(NoneType: BuiltinConstType)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({BuiltinConstType}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {BuiltinConstType};
+  scope.__name__ = 'NoneType';
+  function doload()
+    function _get_singleton(cls)
+      return None;
+    end;
+    setfenv(_get_singleton, _M);
+    function __repr__(self)
+      return str('None');
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+NoneType = setup_basic_class(NoneType);
+local LuaObject = (function(_M)--(LuaObject: object)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({object}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {object};
+  scope.__name__ = 'LuaObject';
+  function doload()
+    function __init__(self, obj)
+      if is_pyobj(obj) then
+        error(Exception('Not allowed wrapping python object!'));
+      end;
+      ObjValue[self] = obj;
+    end;
+    setfenv(__init__, _M);
+    function __str__(self)
+      return str(_OP__Repr__(self));
+    end;
+    setfenv(__str__, _M);
+    function __repr__(self)
+      return str(tostring(ObjValue[self]));
+    end;
+    setfenv(__repr__, _M);
+    function __lua__(self)
+      return ObjValue[self];
+    end;
+    setfenv(__lua__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+LuaObject = setup_basic_class(LuaObject);
+LuaObject = setup_hide_class(LuaObject);
+local function require_lua_sequance(value)
+  if lua.type(value) ~= 'table' then
+  elseif value[lua.len(value)] == nil then
+  elseif value[1] == nil then
+  elseif value[0] ~= nil then
+  else
+    return true;
+  end;
+  error(Exception('Not allowed unknown table (or other thing)!'));
+end;
+list = (function(_M)--(list: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'list';
+  function doload()
+    function __init__(self, value)
+      LuaObject.__init__(self, value);
+      local start = {};
+      local cur = start;
+      local k, v;
+      for k, v in pairs(value) do
+        local new = {};
+        cur.v = v;
+        new.p = cur;
+        cur.n = new;
+        cur = new;
+      end;
+      new.p.n = nil;
+    end;
+    setfenv(__init__, _M);
+    function __repr__(self)
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+list = setup_basic_class(list);
+tuple = (function(_M)--(tuple: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'tuple';
+  function doload()
+    function __init__(self, obj)
+      LuaObject.__init__(self, obj);
+      assert(require_lua_sequance(obj));
+    end;
+    setfenv(__init__, _M);
+    function __repr__(self)
+      return self.make_repr('(', ')');
+    end;
+    setfenv(__repr__, _M);
+    function __len__(self)
+      return int(lua.len(ObjValue[self]));
+    end;
+    setfenv(__len__, _M);
+    function __getitem__(self, x)
+      assert(is_pyobj(x));
+      if isinstance(x, int) then
+        return ObjValue[self][(LObj(x) + 1)];
+      end;
+      error('Not support unknown type.');
+    end;
+    setfenv(__getitem__, _M);
+    function __repr__(self)
+      local ret = {};
+      local idx = 1;
+      local sep = '';
+      ret[idx] = '(';
+      idx = (idx + 1);
+      local k, v;
+      for k, v in pairs(ObjValue[self]) do
+        ret[idx] = sep;
+        idx = (idx + 1);
+        ret[idx] = LObj(repr(v));
+        idx = (idx + 1);
+        sep = ', ';
+      end;
+      ret[idx] = ')';
+      idx = (idx + 1);
+      return table.concat(ret);
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+tuple = setup_basic_class(tuple);
+str = (function(_M)--(str: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'str';
+  function doload()
+    function __init__(self, value)
+      if is_pyobj(value) then
+        value = _OP__Str__(value);
+        value = LObj(value);
+      end;
+      ObjValue[self] = value;
+    end;
+    setfenv(__init__, _M);
+    function __str__(self)
+      return self;
+    end;
+    setfenv(__str__, _M);
+    function __repr__(self)
+      return str(lua.concat("'", ObjValue[self], "'"));
+    end;
+    setfenv(__repr__, _M);
+    function __len__(self)
+      return int(lua.len(ObjValue[self]));
+    end;
+    setfenv(__len__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+str = setup_basic_class(str);
+bool = (function(_M)--(bool: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'bool';
+  function doload()
+    function __new__(cls, value)
+      if not inited then
+        local instance = object.__new__(cls);
+        ObjValue[instance] = value;
+        return instance;
+      end;
+      if is_pyobj(value) then
+        value = _OP__Bool__(value);
+      else
+        value = value and true or false;
+      end;
+      if value == true then
+        return True;
+      elseif value == false then
+        return False;
+      elseif is_pyobj(value) and type(value) == bool then
+        return value;
+      end;
+      error('__Bool__ are returned unknown value.');
+    end;
+    setfenv(__new__, _M);
+    function __repr__(self)
+      local value = ObjValue[self];
+      if value == true then
+        return str('True');
+      elseif value == false then
+        return str('False');
+      end;
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+bool = setup_basic_class(bool);
+int = (function(_M)--(int: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'int';
+  function doload()
+    function __add__(self, other)
+      return int((ObjValue[self] + ObjValue[other]));
+    end;
+    setfenv(__add__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+int = setup_basic_class(int);
+dict = (function(_M)--(dict: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'dict';
+  function doload()
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+dict = setup_basic_class(dict);
+local function inital()
+  local cls, _;
+  for cls, _ in pairs(InitalBuiltinTypes) do
+    register_builtins_class(cls);
+    BuiltinTypes[cls] = true;
+  end;
+  InitalBuiltinTypes = nil;
+  _M['NotImplemented'] = NotImplementedType();
+  _M['Ellipsis'] = EllipsisType();
+  _M['None'] = NoneType();
+  _M['True'] = bool(true);
+  _M['False'] = bool(false);
+  return true;
+end;
+inited = inital();
+print(str('Hello world!'));
+local r = str('test');
+r.test = 32;
+error('test');

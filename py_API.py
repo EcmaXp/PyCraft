@@ -96,7 +96,9 @@ def error(msg, level):
         msg = LObj(msg)
 
     level += 1
-    lua.error(lua.concat(TAG, " ", tostring(msg)), level)
+    msg = lua.concat(TAG, " ", tostring(msg))
+
+    lua.error(msg, level) #--[DEBUG; ERROR POINT]--#
 
 def require_args(*args):
     for key, value in pairs(args):
@@ -482,6 +484,10 @@ class object():
         return _OP__Getattribute__(self, key)
 
     def __newindex(self, key, value):
+        lua.print("TEST?", type(self), key, value)
+        for k, v in pairs(BuiltinTypes):
+            lua.print(k, ObjPCEX[k][builtin_methods_rev["__setattr__"]])
+
         return _OP__Setattr__(self, key, value)
 
     def __tostring(self):
@@ -511,11 +517,17 @@ class object():
         error(lua.concat("Not found '", k, "' attribute."))
 
     def __setattr__(self, key, value):
-        if BuiltinTypes[type(self)] and inited:
-            error("TypeError: can't set attributes of built-in/extension type 'object'")
+        cls = type(self)
+        if BuiltinTypes[cls] and inited:
+            basemsg = "can't set attributes of built-in/extension type "
+            error(TypeError(lua.concat(basemsg, LObj(repr(cls.__name__)))))
 
         # TODO: Add PCEX Support!
         rawset(self, key, value)
+
+    def __delattr__(self, key, value):
+        # TODO: Add PCEX Support! (assign nil are not for PCEX!)
+        object.__setattr__(self, key, nil)
 
     def __str__(self):
         return _OP__Repr__(self)
@@ -540,6 +552,7 @@ class type(object):
         return list(ObjValue[cls.__mro__]) # TODO: list(cls.__mro__) direct!
 
 @setup_base_class
+@setup_hide_class
 class ptype(type):
     def __call__(cls, *args):
         if lua.len(args) == 1:
@@ -553,6 +566,9 @@ class ptype(type):
 setmetatable(object, type)
 setmetatable(type, ptype)
 setmetatable(ptype, ptype)
+
+## for exception
+__PC_ECMAXP_SETUP_AUTO_GLOBAL(true)
 
 @setup_basic_class
 class BaseException(object):
@@ -592,8 +608,14 @@ class Exception(BaseException):
     pass
 
 @setup_basic_class
+class TypeError(Exception, BaseException):
+    pass
+
+@setup_basic_class
 class UnstableException(Exception, BaseException):
     pass
+
+__PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 
 @setup_basic_class
 class BuiltinConstType(object):
@@ -635,14 +657,9 @@ class NoneType(BuiltinConstType):
 @setup_basic_class
 @setup_hide_class
 class LuaObject(object):
-    # This is hidden, and core of calc.
-    LuaObject = true
-    # isinstance are need.
-
     def __init__(self, obj):
-        mtable = getmetatable(obj)
-        if mtable and rawget(mtable, "LuaObject"):
-            obj = LObj(obj)
+        if is_pyobj(obj):
+            error(Exception("Not allowed wrapping python object!"))
 
         ObjValue[self] = obj
 
@@ -655,57 +672,49 @@ class LuaObject(object):
     def __lua__(self):
         return ObjValue[self]
 
-@setup_basic_class
-@setup_hide_class
-class LuaValueOnlySequance(LuaObject):
-    def __init__(self, value):
-        if is_pyobj(value):
-            self.check_type(value)
+def require_lua_sequance(value):
+    if lua.type(value) != "table": pass
+    elif value[lua.len(value)] is nil: pass
+    elif value[1] is nil: pass
+    elif value[0] is not nil: pass
+    else:
+        return true
 
-        ObjValue[self] = value
+    error(Exception("Not allowed unknown table (or other thing)!"))
 
-    def check_type(self, value):
-        if type(value) == "table": pass
-        elif value[lua.len(value)] is nil: pass
-        elif value[1] is nil: pass
-        elif value[0] is not nil: pass
-        else:
-            return true
-
-        return false
-
-    def make_repr(self, s, e):
-        ret = []
-        idx = 1
-
-        sep = ""
-        ret[idx] = s; idx += 1
-        for k,v in pairs(ObjValue[self]):
-            ret[idx] = sep; idx += 1
-            ret[idx] = LObj(repr(v)); idx += 1
-            sep = ", "
-
-        ret[idx] = e; idx += 1
-
-        return table.concat(ret)
 
 global list
 @setup_basic_class
-class list(LuaValueOnlySequance):
-    def __repr__(self):
-        return self.make_repr("[", "]")
+class list(LuaObject):
+    def __init__(self, value):
+        LuaObject.__init__(self, value)
 
-    def __setattr__(self, key, value):
-        error("Not allowed")
+        start = {}
+        new = nil
+        cur = start
+        for k, v in pairs(value):
+            new = {}
+            cur.v = v
+
+            new.p = cur
+            cur.n = new
+            cur = new
+
+        if new.p:
+            new.p.n = nil
+
+    def __repr__(self):
+        pass
 
 global tuple
 @setup_basic_class
-class tuple(LuaValueOnlySequance):
+class tuple(LuaObject):
+    def __init__(self, obj):
+        LuaObject.__init__(self, obj)
+        assert require_lua_sequance(obj)
+
     def __repr__(self):
         return self.make_repr("(", ")")
-
-    def __setattr__(self, key, value):
-        error("Not allowed")
 
     def __len__(self):
         return int(lua.len(ObjValue[self]))
@@ -716,6 +725,21 @@ class tuple(LuaValueOnlySequance):
             return ObjValue[self][LObj(x) + 1]
 
         error("Not support unknown type.")
+
+    def __repr__(self):
+        ret = []
+        idx = 1
+
+        sep = ""
+        ret[idx] = "("; idx += 1
+        for k,v in pairs(ObjValue[self]):
+            ret[idx] = sep; idx += 1
+            ret[idx] = LObj(repr(v)); idx += 1
+            sep = ", "
+
+        ret[idx] = ")"; idx += 1
+
+        return table.concat(ret)
 
 global str
 @setup_basic_class
@@ -801,4 +825,5 @@ inited = inital()
 
 ## test code are here!
 print(str("Hello world!"))
+r = str("test")
 error("test")
