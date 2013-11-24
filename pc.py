@@ -753,7 +753,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
         node_target = node.target
         node.target = vtemp
         node.iter = self.make_static_op(
-            "Iter_For",
+            "ForIter",
             node.iter,
         )
 

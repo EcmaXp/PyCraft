@@ -11,6 +11,7 @@ lua = {};
 lua.len = (function(obj) return #obj; end);
 lua.concat = (function(...) return table.concat({...}); end);
 lua.write = write or io.write;
+lua.yield_ = coroutine['yield'];
 local key, value;
 for key, value in pairs(_G) do
   lua[key] = value;
@@ -422,6 +423,20 @@ end;
 function _OP__IsNot__(a, b)
   return not _OP__Is__(a, b);
 end;
+function _OP__ForIter__(ret)
+  return LObj(iter(ret));
+end;
+function _OP__SetupGenFunc__(func)
+  local function func2()
+    local function body(...)
+      local args = {...};
+      func(...);
+    end;
+    return generator(coroutine.create(body));
+  end;
+  return func2;
+end;
+local _OP__Yield__ = lua.yield_;
 local function _(name)
   return builtin_methods_rev[name];
 end;
@@ -556,6 +571,13 @@ function id(obj)
     return int(ObjID[obj]);
   end;
   Fail_OP_Raw(obj, '__id!');
+end;
+function iter(ret)
+  ret = _OP__Iter__(ret);
+  if not isinstance(ret, generator) then
+    error(TypeError('iter are only accept generator!'));
+  end;
+  return ret;
 end;
 function len(obj)
   return _OP__Len__(obj);
@@ -942,6 +964,55 @@ local LuaObject = (function(_M)--(LuaObject: object)
 end)(_M);
 LuaObject = setup_basic_class(LuaObject);
 LuaObject = setup_hide_class(LuaObject);
+generator = (function(_M)--(generator: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'generator';
+  function doload()
+    function __init__(self, obj)
+      if is_pyobj(obj) then
+        error(TypeError("cannot create 'generator' instances"), 1);
+      elseif lua.type(obj) ~= 'thread' then
+        error(TypeError("gernerator only accept lua.type 'thread' object."), 1);
+      end;
+      LuaObject.__init__(self, obj);
+    end;
+    setfenv(__init__, _M);
+    function __next__(self)
+      return LObj(genbody)();
+    end;
+    setfenv(__next__, _M);
+    function __repr__(self)
+      return str(tostring(ObjValue[self]));
+    end;
+    setfenv(__repr__, _M);
+    function __lua__(self)
+      local t = ObjValue[self];
+      local function genbody()
+        success, value = coroutine.resume(t);
+        if not success then
+          return nil;
+        end;
+        return value;
+      end;
+      return genbody;
+    end;
+    setfenv(__lua__, _M);
+    function __iter__(self)
+      return self;
+    end;
+    setfenv(__iter__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+generator = setup_basic_class(generator);
 local function require_lua_sequance(value)
   if lua.type(value) ~= 'table' then
   elseif lua.len(value) == 0 then
@@ -965,7 +1036,6 @@ list = (function(_M)--(list: LuaObject)
   scope.__name__ = 'list';
   function doload()
     function __init__(self, value)
-      LuaObject.__init__(self, value);
       local start = {};
       local new = nil;
       local cur = start;
@@ -980,11 +1050,16 @@ list = (function(_M)--(list: LuaObject)
       if new.p then
         new.p.n = nil;
       end;
+      LuaObject.__init__(self, start);
     end;
     setfenv(__init__, _M);
     function __repr__(self)
     end;
     setfenv(__repr__, _M);
+    function __lua__(self)
+      error(Exception('Not allowed '));
+    end;
+    setfenv(__lua__, _M);
   end;
   setfenv(doload, scope);
   doload();
@@ -1046,6 +1121,19 @@ tuple = (function(_M)--(tuple: LuaObject)
       return table.concat(ret);
     end;
     setfenv(__repr__, _M);
+    function __iter__(self)
+      local value = ObjValue[self];
+      local idx = 1;
+      local function body()
+        while value[idx] ~= nil do
+          _OP__Yield__(value[idx]);
+          idx = (idx + 1);
+        end;
+      end;
+      body = _OP__SetupGenFunc__(body);
+      return body();
+    end;
+    setfenv(__iter__, _M);
   end;
   setfenv(doload, scope);
   doload();
@@ -1186,6 +1274,9 @@ local function inital()
   return true;
 end;
 inited = inital();
+for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})) do
+  print(x);
+end;
 print(str.mro());
 print(object.mro());
 print(str('Hello world!'));

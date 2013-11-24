@@ -17,6 +17,7 @@ lua = {}
 lua.len = lambda obj: LUA_CODE("#obj")
 lua.concat = lambda *args: table.concat(args)
 lua.write = write or io.write
+lua.yield_ = coroutine['yield']
 for key, value in pairs(_G):
     lua[key] = value
 
@@ -279,112 +280,89 @@ def OP_Call(ax):
         Fail_OP(a, ax)
     return func
 
-def OP_Math2(ax, bx):
-    def func(a, b):
-        assert require_pyobj(a, b)
-        am = ObjPCEX[getmetatable(a)]
-        bm = ObjPCEX[getmetatable(b)]
+def OP_Math1(vx, wx): # binary_op1
+    def func(v, w):
+        assert require_pyobj(v, w)
+        vm = ObjPCEX[getmetatable(v)]
+        wm = ObjPCEX[getmetatable(w)]
 
-        f = am[ax]
-        if f:
-            ret = f(a, b)
-            if ret != NotImplemented: return ret
+        vf = vm[vx]
+        if vm != wm:
+            wf = wm[wx]
+            if vf == wf:
+                wf = nil
 
-        f = bm[bx]
-        if f:
-            ret = f(b, a)
-            if ret != NotImplemented: return ret
+        if vf:
+            if wf and issubclass(type(w), type(v)):
+                x = wf(v, w)
+                if x != NotImplemented: return x
+                wf = nil
+
+            x = vf(v, w)
+            if x != NotImplemented: return x
+
+        if wf:
+            x = wf(v, w)
+            if x != NotImplemented: return x
 
         Fail_OP_Math(a, b, ax)
 
     return func
 
-def OP_Math3(cx, ax, bx): # cx is first.
-    def func(a, b):
-        assert require_pyobj(a, b)
-        am = ObjPCEX[getmetatable(a)]
-        bm = ObjPCEX[getmetatable(b)]
-        is_n = isinstance(a, int) == True or isinstance(b, float) == True
+def OP_Math2(vx, wx, zx): # binary_iop1
+    op = OP_Math1(wx, zx)
+    def func(v, w):
+        assert require_pyobj(v, w)
+        vm = ObjPCEX[getmetatable(v)]
 
-        if is_n:
-            f = am[ax]
-            if f:
-                ret = f(a, b)
-                if ret != NotImplemented: return ret
+        vf = vm[vx]
+        if vf:
+            x = vf(v, w)
+            if x != NotImplemented: return x
 
-        f = am[cx]
-        if f:
-            ret = f(a, b)
-            if ret != NotImplemented: return ret
-
-        # OP_Math2
-        if not is_n:
-            f = am[ax]
-            if f:
-                ret = f(a, b)
-                if ret != NotImplemented: return ret
-
-        f = bm[bx]
-        if f:
-            ret = f(b, a)
-            if ret != NotImplemented: return ret
-
-        Fail_OP_Math(a, b, cx)
+        return op(v, w)
 
     return func
 
-def OP_Math2_Pow(ax, bx):
-    def func(a, b, c):
-        assert require_pyobj(a, b)
-        assert require_pyobj(c) or c is nil
-        am = ObjPCEX[getmetatable(a)]
-        bm = ObjPCEX[getmetatable(b)]
+def OP_Math1_Pow(vx, wx, zx): # ternary_op
+    def func(v, w, z):
+        assert require_pyobj(v, w)
+        vm = ObjPCEX[getmetatable(v)]
+        wm = ObjPCEX[getmetatable(w)]
+        zm = ObjPCEX[getmetatable(z)]
 
-        f = am[ax]
-        if f:
-            ret = f(a, b, c)
-            if ret != NotImplemented: return ret
+        vf = vm[vx]
+        if vm != wm:
+            wf = wm[wx]
+            if vf == wf:
+                wf = nil
 
-        if c is not nil:
-            # http://docs.python.org/3.3/reference/datamodel.html
-            # Note. that ternary pow() will not try calling __rpow__()
-            #       (the coercion rules would become too complicated).
+        if vf:
+            if wf and issubclass(type(w), type(v)):
+                x = wf(v, w, z)
+                if x != NotImplemented: return x
+                wf = nil
+                #TODO: Fixhere, i'm so sleeply
 
-            f = bm[bx]
-            if f:
-                ret = f(b, a)
-                if ret != NotImplemented: return ret
+            x = vf(v, w, z)
+            if x != NotImplemented: return x
 
-        Fail_OP_Math_Pow(a, b, ax, c)
+        if wf:
+            x = wf(v, w, z)
+            if x != NotImplemented: return x
 
-    return func
+        zf = zm[zx]
+        if zf:
+            if vf == zf or wf == zf:
+                zf = nil
 
-def OP_Math3_Pow(cx, ax, bx):
-    def func(a, b, c):
-        assert require_pyobj(a, b)
-        assert require_pyobj(c) or c is nil
-        am = ObjPCEX[getmetatable(a)]
-        bm = ObjPCEX[getmetatable(b)]
+            if zf:
+                x = zf(x, w, z)
 
-        f = am[cx]
-        if f:
-            ret = f(a, b, c)
-            if ret != NotImplemented: return ret
-
-        f = am[ax]
-        if f:
-            ret = f(a, b, c)
-            if ret != NotImplemented: return ret
-
-        if c is not nil:
-            f = bm[bx]
-            if f:
-                ret = f(b, a)
-                if ret != NotImplemented: return ret
-
-        Fail_OP_Math_Pow(a, b, ax, c)
+        Fail_OP_Math(a, b, ax)
 
     return func
+
 
 global _OP__Is__, _OP__IsNot__
 def  _OP__Is__(a, b):
@@ -393,6 +371,23 @@ def  _OP__Is__(a, b):
 
 def _OP__IsNot__(a, b):
     return not _OP__Is__(a, b)
+
+global _OP__ForIter__
+def _OP__ForIter__(ret):
+    return LObj(iter(ret))
+
+global _OP__SetupGenFunc__
+def _OP__SetupGenFunc__(func):
+    def func2():
+        # TODO: add try~except and handle error!
+        def body(*args):
+            func(*args)
+
+        return generator(coroutine.create(body))
+
+    return func2
+
+_OP__Yield__ = lua.yield_
 
 def _(name): return builtin_methods_rev[name]
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(true)
@@ -411,7 +406,7 @@ _OP__Ne__ = OP_Call(_('__ne__'))
 _OP__Gt__ = OP_Call(_('__gt__'))
 _OP__Ge__ = OP_Call(_('__ge__'))
 _OP__Hash__ = OP_Call(_('__hash__'))
-_OP__Bool__ = OP_Call(_('__bool__'))
+_OP__Bool__ = OP_Call(_('__bool__')) # TypeError: __bool__ should return bool, returned xxx
 _OP__Getattr__ = OP_Call(_('__getattr__'))
 _OP__Getattribute__ = OP_Call(_('__getattribute__'))
 _OP__Setattr__ = OP_Call(_('__setattr__'))
@@ -431,33 +426,33 @@ _OP__Reversed__ = OP_Call(_('__reversed__'))
 _OP__Contains__ = OP_Call(_('__contains__'))
 
 ## Math Operation (A * B)
-_OP__Add__ = OP_Math2(_('__add__'), _('__radd__'))
-_OP__Sub__ = OP_Math2(_('__sub__'), _('__rsub__'))
-_OP__Mul__ = OP_Math2(_('__mul__'), _('__rmul__'))
-_OP__Truediv__ = OP_Math2(_('__truediv__'), _('__rtruediv__'))
-_OP__Floordiv__ = OP_Math2(_('__floordiv__'), _('__rfloordiv__'))
-_OP__Mod__ = OP_Math2(_('__mod__'), _('__rmod__'))
-_OP__Divmod__ = OP_Math2(_('__divmod__'), _('__rdivmod__'))
-_OP__Pow__ = OP_Math2_Pow(_('__pow__'), _('__rpow__'))
-_OP__Lshift__ = OP_Math2(_('__lshift__'), _('__rlshift__'))
-_OP__Rshift__ = OP_Math2(_('__rshift__'), _('__rrshift__'))
-_OP__And__ = OP_Math2(_('__and__'), _('__rand__'))
-_OP__Xor__ = OP_Math2(_('__xor__'), _('__rxor__'))
-_OP__Or__ = OP_Math2(_('__or__'), _('__ror__'))
+_OP__Add__ = OP_Math1(_('__add__'), _('__radd__'))
+_OP__Sub__ = OP_Math1(_('__sub__'), _('__rsub__'))
+_OP__Mul__ = OP_Math1(_('__mul__'), _('__rmul__'))
+_OP__Truediv__ = OP_Math1(_('__truediv__'), _('__rtruediv__'))
+_OP__Floordiv__ = OP_Math1(_('__floordiv__'), _('__rfloordiv__'))
+_OP__Mod__ = OP_Math1(_('__mod__'), _('__rmod__'))
+_OP__Divmod__ = OP_Math1(_('__divmod__'), _('__rdivmod__'))
+_OP__Pow__ = OP_Math1_Pow(_('__pow__'), _('__rpow__'))
+_OP__Lshift__ = OP_Math1(_('__lshift__'), _('__rlshift__'))
+_OP__Rshift__ = OP_Math1(_('__rshift__'), _('__rrshift__'))
+_OP__And__ = OP_Math1(_('__and__'), _('__rand__'))
+_OP__Xor__ = OP_Math1(_('__xor__'), _('__rxor__'))
+_OP__Or__ = OP_Math1(_('__or__'), _('__ror__'))
 
 ## Math Operation (A *= B)
-_OP__Iadd__ = OP_Math3(_('__iadd__'), _('__add__'), _('__radd__'))
-_OP__Isub__ = OP_Math3(_('__isub__'), _('__sub__'), _('__rsub__'))
-_OP__Imul__ = OP_Math3(_('__imul__'), _('__mul__'), _('__rmul__'))
-_OP__Itruediv__ = OP_Math3(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'))
-_OP__Ifloordiv__ = OP_Math3(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'))
-_OP__Imod__ = OP_Math3(_('__imod__'), _('__mod__'), _('__rmod__'))
-_OP__Ipow__ = OP_Math3_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'))
-_OP__Ilshift__ = OP_Math3(_('__ilshift__'), _('__lshift__'), _('__rlshift__'))
-_OP__Irshift__ = OP_Math3(_('__irshift__'), _('__rshift__'), _('__rrshift__'))
-_OP__Iand__ = OP_Math3(_('__iand__'), _('__and__'), _('__rand__'))
-_OP__Ixor__ = OP_Math3(_('__ixor__'), _('__xor__'), _('__rxor__'))
-_OP__Ior__ = OP_Math3(_('__ior__'), _('__or__'), _('__ror__'))
+_OP__Iadd__ = OP_Math2(_('__iadd__'), _('__add__'), _('__radd__'))
+_OP__Isub__ = OP_Math2(_('__isub__'), _('__sub__'), _('__rsub__'))
+_OP__Imul__ = OP_Math2(_('__imul__'), _('__mul__'), _('__rmul__'))
+_OP__Itruediv__ = OP_Math2(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'))
+_OP__Ifloordiv__ = OP_Math2(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'))
+_OP__Imod__ = OP_Math2(_('__imod__'), _('__mod__'), _('__rmod__'))
+_OP__Ipow__ = OP_Math2_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'))
+_OP__Ilshift__ = OP_Math2(_('__ilshift__'), _('__lshift__'), _('__rlshift__'))
+_OP__Irshift__ = OP_Math2(_('__irshift__'), _('__rshift__'), _('__rrshift__'))
+_OP__Iand__ = OP_Math2(_('__iand__'), _('__and__'), _('__rand__'))
+_OP__Ixor__ = OP_Math2(_('__ixor__'), _('__xor__'), _('__rxor__'))
+_OP__Ior__ = OP_Math2(_('__ior__'), _('__or__'), _('__ror__'))
 
 ## Basic Call (Part B)
 _OP__Neg__ = OP_Call(_('__neg__'))
@@ -508,10 +503,16 @@ def isinstance(obj, targets):
     mro = cls.mro()
     assert type(mro) == list
 
+    if type(targets) == tuple:
+        targets = LObj(targets)
+    else:
+        targets = {targets}
+
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
-        if supercls == targets:
-            return True
+        for k, target in pairs(targets):
+            if supercls == targets:
+                return True
 
     return False
 
@@ -521,14 +522,16 @@ def issubclass(cls, targets):
     if type(cls) != type:
         error("issubclass() arg 1 must be a class")
 
-    mro = cls.mro()
-    assert type(mro) == list
+    if type(targets) == tuple:
+        targets = LObj(targets)
+    else:
+        targets = {targets}
 
     for _, supercls in pairs(ObjValue[mro]):
         require_pyobj(supercls)
-        if supercls == targets:
-            return True
-
+        for k, target in pairs(targets):
+            if supercls == targets:
+                return True
     return False
 
 def id(obj):
@@ -536,6 +539,13 @@ def id(obj):
         return int(ObjID[obj])
 
     Fail_OP_Raw(obj, "__id!")
+
+def iter(ret):
+    ret = _OP__Iter__(ret)
+    if not isinstance(ret, generator):
+        error(TypeError("iter are only accept generator!"))
+
+    return ret
 
 def len(obj):
     return _OP__Len__(obj)
@@ -741,6 +751,39 @@ class LuaObject(object):
     def __lua__(self):
         return ObjValue[self]
 
+global generator
+@setup_basic_class
+class generator(LuaObject):
+    def __init__(self, obj):
+        if is_pyobj(obj):
+            error(TypeError("cannot create 'generator' instances"), 1)
+        elif lua.type(obj) != "thread":
+            error(TypeError("gernerator only accept lua.type 'thread' object."), 1)
+
+        LuaObject.__init__(self, obj)
+
+    # TODO: Support next?
+
+    def __next__(self):
+        return LObj(genbody)()
+
+    def __repr__(self):
+        return str(tostring(ObjValue[self]))
+
+    def __lua__(self):
+        t = ObjValue[self]
+        def genbody():
+            success, value = coroutine.resume(t)
+            if not success:
+                return nil
+
+            return value
+
+        return genbody
+
+    def __iter__(self):
+        return self
+
 def require_lua_sequance(value):
     if lua.type(value) != "table": pass
     elif lua.len(value) == 0:
@@ -753,13 +796,10 @@ def require_lua_sequance(value):
 
     error(Exception("Not allowed unknown table (or other thing)!"))
 
-
 global list
 @setup_basic_class
 class list(LuaObject):
     def __init__(self, value):
-        LuaObject.__init__(self, value)
-
         start = {}
         new = nil
         cur = start
@@ -774,8 +814,13 @@ class list(LuaObject):
         if new.p:
             new.p.n = nil
 
+        LuaObject.__init__(self, start)
+
     def __repr__(self):
         pass
+
+    def __lua__(self):
+        error(Exception("Not allowed "))
 
 global tuple
 @setup_basic_class
@@ -815,6 +860,19 @@ class tuple(LuaObject):
         ret[idx] = ")"; idx += 1
 
         return table.concat(ret)
+
+    def __iter__(self):
+        value = ObjValue[self]
+        idx = 1
+
+        @_OP__SetupGenFunc__
+        def body():
+            nonlocal idx
+            while value[idx] is not nil:
+                _OP__Yield__(value[idx])
+                idx += 1
+
+        return body()
 
 list = tuple # list are broken, wait until fix. (with linked list!)
 
@@ -868,12 +926,29 @@ class bool(LuaObject):
         elif value == false:
             return str("False")
 
+def require_num_type(x):
+    return isinstane(x, tuple({int, float}))
+
+def con(a, b, ret):
+    at = type(a)
+    bt = type(b)
+
+    if is_float(ret):
+        bt()
+
+
+    if isinstance(a, int) and :
+        a = 1
+
+
 global int
 @setup_basic_class
-class int(LuaObject):
+class num(LuaObject):
     def __add__(self, other):
-        # TODO: We must use pattern for something.
+        assert require_num_type(other)
+        return int(ObjValue[self] + ObjValue[other])
 
+    def __sub__(self, other):
         return int(ObjValue[self] + ObjValue[other])
 
 global dict
@@ -901,6 +976,9 @@ inited = inital()
 ##
 
 ## test code are here!
+for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
+    print(x)
+
 print(str.mro())
 print(object.mro())
 
