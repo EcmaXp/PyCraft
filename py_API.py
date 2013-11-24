@@ -74,7 +74,6 @@ def LObj(obj):
 def require_pyobj(*objs):
     for idx, obj in pairs(objs):
         if not is_pyobj(obj):
-            lua.print(lua.type(obj), obj)
             error("Require python object.")
 
     return true
@@ -484,10 +483,6 @@ class object():
         return _OP__Getattribute__(self, key)
 
     def __newindex(self, key, value):
-        lua.print("TEST?", type(self), key, value)
-        for k, v in pairs(BuiltinTypes):
-            lua.print(k, ObjPCEX[k][builtin_methods_rev["__setattr__"]])
-
         return _OP__Setattr__(self, key, value)
 
     def __tostring(self):
@@ -522,11 +517,10 @@ class object():
             basemsg = "can't set attributes of built-in/extension type "
             error(TypeError(lua.concat(basemsg, LObj(repr(cls.__name__)))))
 
-        # TODO: Add PCEX Support!
         rawset(self, key, value)
 
     def __delattr__(self, key, value):
-        # TODO: Add PCEX Support! (assign nil are not for PCEX!)
+        # That is safe?
         object.__setattr__(self, key, nil)
 
     def __str__(self):
@@ -825,5 +819,3 @@ inited = inital()
 
 ## test code are here!
 print(str("Hello world!"))
-r = str("test")
-error("test")

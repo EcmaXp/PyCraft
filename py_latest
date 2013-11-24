@@ -64,7 +64,6 @@ local function require_pyobj(...)
   local idx, obj;
   for idx, obj in pairs(objs) do
     if not is_pyobj(obj) then
-      lua.print(lua.type(obj), obj);
       error('Require python object.');
     end;
   end;
@@ -489,11 +488,6 @@ object = (function(_M)--(object)
     end;
     setfenv(__index, _M);
     function __newindex(self, key, value)
-      lua.print('TEST?', type(self), key, value);
-      local k, v;
-      for k, v in pairs(BuiltinTypes) do
-        lua.print(k, ObjPCEX[k][builtin_methods_rev['__setattr__']]);
-      end;
       return _OP__Setattr__(self, key, value);
     end;
     setfenv(__newindex, _M);
@@ -878,16 +872,19 @@ list = (function(_M)--(list: LuaObject)
     function __init__(self, value)
       LuaObject.__init__(self, value);
       local start = {};
+      local new = nil;
       local cur = start;
       local k, v;
       for k, v in pairs(value) do
-        local new = {};
+        new = {};
         cur.v = v;
         new.p = cur;
         cur.n = new;
         cur = new;
       end;
-      new.p.n = nil;
+      if new.p then
+        new.p.n = nil;
+      end;
     end;
     setfenv(__init__, _M);
     function __repr__(self)
@@ -1089,6 +1086,3 @@ local function inital()
 end;
 inited = inital();
 print(str('Hello world!'));
-local r = str('test');
-r.test = 32;
-error('test');
