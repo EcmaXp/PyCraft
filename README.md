@@ -3,7 +3,7 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
-Progess 67%
+Progess 67.5%
 
 Any helper can help me. Open issue with support this.
 
@@ -40,9 +40,13 @@ Any helper can help me. Open issue with support this.
 
 ## Check Here
 * http://www.computercraft.info/
-* http://greentreesnakes.readthedocs.org/en/latest/
-* http://docs.python.org/3.3/library/ast.html
-* http://ccdesk.afterlifelochie.net/
 * http://www.lua.org/
+* http://docs.python.org/3.3/
+* http://docs.python.org/3.3/reference/datamodel.html
+* http://docs.python.org/3.3/library/ast.html
+* http://greentreesnakes.readthedocs.org/en/latest/
+
+## Dev Environ
+* http://ccdesk.afterlifelochie.net/
 * http://www.eclipse.org/koneki/ldt/
 * https://code.google.com/p/pyscripter/
