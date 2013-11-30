@@ -3,7 +3,9 @@ Python 4 Lua (ComputerCraft Only!)
 
 Python Code to Lua. For ComputerCraft
 
-Progess 67.5%
+This Project are stopped.
+
+[del]Progess 67.5%[/del]
 
 Any helper can help me. Open issue with support this.
 
