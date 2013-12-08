@@ -757,6 +757,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             node.iter,
         )
 
+        # TODO: Insert assign nil in here. (Use extra ASTType or other method, but must don't)
         node.body.insert(0, Assign([node_target], vtemp))
 
         body = []

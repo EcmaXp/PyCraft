@@ -94,11 +94,10 @@ def error(msg, level):
     if level is nil:
         level = 1
 
-    if is_pyobj(msg):
-        msg = LObj(msg)
+    msg = LObj(msg)
 
     level += 1
-    msg = lua.concat(TAG, " ", tostring(msg))
+    msg = string.format("%s %s", TAG, tostring(msg))
 
     lua.error(msg, level) #--[DEBUG; ERROR POINT]--#
 
@@ -112,7 +111,7 @@ def require_args(*args):
 def nonrequire_args(*args):
     for key, value in pairs(args):
         if value is not nil:
-            error("SystemError: Not Enough Item")
+            error("SystemError: Too Many Item")
 
     return True
 
@@ -393,6 +392,9 @@ def _OP__SetupGenFunc__(func):
 
 _OP__Yield__ = lua.yield_
 
+def _OP__Call__(func, args, kwargs):
+    pass
+
 def _(name): return builtin_methods_rev[name]
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(true)
 ## Basic Call (Part A)
@@ -420,7 +422,7 @@ _OP__Get__ = OP_Call(_('__get__'))
 _OP__Set__ = OP_Call(_('__set__'))
 _OP__Delete__ = OP_Call(_('__delete__'))
 _OP__Slots__ = OP_Call(_('__slots__'))
-_OP__Call__ = OP_Call(_('__call__'))
+_OP__RawCall__ = OP_Call(_('__call__'))
 _OP__Len__ = OP_Call(_('__len__'))
 _OP__Getitem__ = OP_Call(_('__getitem__'))
 _OP__Setitem__ = OP_Call(_('__setitem__'))
@@ -479,7 +481,7 @@ def repr(obj):
     if is_pyobj(obj):
         return _OP__Repr__(obj)
     else:
-        return lua.concat(LUA_OBJ_TAG, "(", tostring(obj), ")")
+        return string.format("%s(%s)", LUA_OBJ_TAG, tostring(obj))
 
 def print(*args):
     arr = []
@@ -565,7 +567,7 @@ class object():
         pass
 
     def __call(self, *args):
-        return _OP__Call__(self, *args)
+        return _OP__RawCall__(self, *args)
 
     def __index(self, key):
         return _OP__Getattribute__(self, key)
@@ -574,7 +576,7 @@ class object():
         return _OP__Setattr__(self, key, value)
 
     def __tostring(self):
-        return lua.concat(PY_OBJ_TAG, "(", LObj(repr(self)), ")")
+        return string.format("%s(%s)", PY_OBJ_TAG, LObj(repr(self)))
 
     def __new__(cls, *args):
         instance = {}
@@ -597,7 +599,7 @@ class object():
             else:
                 return v
 
-        error(lua.concat("Not found '", k, "' attribute."))
+        error(string.format("Not found '%s' attribute.", k))
 
     def __setattr__(self, key, value):
         cls = type(self)
@@ -616,7 +618,10 @@ class object():
 
     def __repr__(self):
         mtable = getmetatable(self)
-        return str(lua.concat("<object ", LObj(mtable.__name__), " at ", LObj(id(self)),">"))
+        name = mtable.__name__
+        oid = id(self)
+
+        return str(strinf.format("<object %s at %s>", LObj(name), LObj(oid)))
 
 global type
 @setup_base_class
@@ -736,6 +741,9 @@ class NoneType(BuiltinConstType):
 
     def __repr__(self):
         return str("None")
+
+    def __lua__(self):
+        return nil
 
 @setup_basic_class
 @setup_hide_class
@@ -931,6 +939,9 @@ class bool(LuaObject):
         elif value == false:
             return str("False")
 
+    def __lua__(self):
+        return ObjValue[self]
+
 @setup_basic_class
 @setup_hide_class
 class LuaNum(LuaObject):
@@ -958,32 +969,31 @@ class LuaNum(LuaObject):
     def __rtruediv__(self, other):
         return float(ObjValue[other] / ObjValue[self])
 
+def int_chk_other(other):
+    if isinstance(other, int) == False: return NotImplemented
+
 global int
 @setup_basic_class
 class int(LuaNum):
     def __add__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__add__(self, other))
+        return int_chk_other(other) or int(LuaNum.__add__(self, other))
 
     def __sub__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__sub__(self, other))
+        return int_chk_other(other) or int(LuaNum.__sub__(self, other))
 
     def __mul__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__mul__(self, other))
+        return int_chk_other(other) or int(LuaNum.__mul__(self, other))
 
     def __radd__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__radd__(self, other))
+        return int_chk_other(other) or int(LuaNum.__radd__(self, other))
 
     def __rsub__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__rsub__(self, other))
+        return int_chk_other(other) or int(LuaNum.__rsub__(self, other))
 
     def __rmul__(self, other):
-        if isinstance(other, int) == False: return NotImplemented
-        return int(LuaNum.__rmul__(self, other))
+        return int_chk_other(other) or int(LuaNum.__rmul__(self, other))
+
+# int_cache = {}
 
 global float
 @setup_basic_class
@@ -1011,6 +1021,48 @@ global dict
 class dict(LuaObject):
     pass
 
+@setup_basic_class
+class function(LuaObject):
+    def __call__(self, *args):
+        pass
+
+# parse_func_kwargs(args, kwargs, 3, None, 2, "kwargs", "a", "b", "c")
+def parse_func_args(args, kwargs, al, a, *fargs_):
+    return parse_func_kwargs(args, kwargs, al, a, 0, None)
+
+def parse_func_kwargs(args, kwargs, al, a, kl, k, *fargs_):
+    ret = []
+
+    idx = 1
+    fargs = fargs_
+
+    assert isinstance(args, tuple)
+    args = LObj(args)
+    kwargs = LObj(kwargs)
+    total_count = al + kl
+    count = 0
+
+    if args is not nil:
+        tmp = []
+
+        x = lua.length(args)
+        y = al
+        z = x - y
+        while count > 0:
+            tmp[idx] = args[idx]
+
+            idx += 1
+            count -= 1
+
+
+    if kwargs is not nil:
+        pass
+
+
+
+def parse_func_args(args, kwargs, *fargs_):
+    pass
+
 ## inital Code
 def inital():
     global InitalBuiltinTypes
@@ -1028,12 +1080,14 @@ def inital():
     return true
 
 inited = inital()
+assert inited
 ##
 
 ## test code are here!
 for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
     print(x)
 
+print(lua.string.format("%s", "test"))
 print(str.mro())
 print(object.mro())
 print(_OP__Truediv__(int(3), int(6)))

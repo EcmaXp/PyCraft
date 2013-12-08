@@ -1265,6 +1265,11 @@ local LuaNum = (function(_M)--(LuaNum: LuaObject)
 end)(_M);
 LuaNum = setup_basic_class(LuaNum);
 LuaNum = setup_hide_class(LuaNum);
+local function int_chk_other(other)
+  if isinstance(other, int) == False then
+    return NotImplemented;
+  end;
+end;
 int = (function(_M)--(int: LuaNum)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -1276,45 +1281,27 @@ int = (function(_M)--(int: LuaNum)
   scope.__name__ = 'int';
   function doload()
     function __add__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__add__(self, other));
+      return int_chk_other(other) or int(LuaNum.__add__(self, other));
     end;
     setfenv(__add__, _M);
     function __sub__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__sub__(self, other));
+      return int_chk_other(other) or int(LuaNum.__sub__(self, other));
     end;
     setfenv(__sub__, _M);
     function __mul__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__mul__(self, other));
+      return int_chk_other(other) or int(LuaNum.__mul__(self, other));
     end;
     setfenv(__mul__, _M);
     function __radd__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__radd__(self, other));
+      return int_chk_other(other) or int(LuaNum.__radd__(self, other));
     end;
     setfenv(__radd__, _M);
     function __rsub__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__rsub__(self, other));
+      return int_chk_other(other) or int(LuaNum.__rsub__(self, other));
     end;
     setfenv(__rsub__, _M);
     function __rmul__(self, other)
-      if isinstance(other, int) == False then
-        return NotImplemented;
-      end;
-      return int(LuaNum.__rmul__(self, other));
+      return int_chk_other(other) or int(LuaNum.__rmul__(self, other));
     end;
     setfenv(__rmul__, _M);
   end;
@@ -1394,9 +1381,11 @@ local function inital()
   return true;
 end;
 inited = inital();
+assert(inited);
 for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})) do
   print(x);
 end;
+print(lua.string.format('%s', 'test'));
 print(str.mro());
 print(object.mro());
 print(_OP__Truediv__(int(3), int(6)));
