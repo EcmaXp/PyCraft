@@ -311,7 +311,8 @@ class IsControlFlow(Exception):
     pass
 
 class BaseBlockEnvManager(object):
-    def __init__(self, **extra):
+    def __init__(self, *, parent=None, **extra):
+        self.parent = parent
         vars(self).update(extra)
         self.reset()
 
@@ -433,14 +434,18 @@ class BlockBasedNodeVisitor(ast.NodeVisitor):
 
     def reset(self):
         self.indent = 0
-        self.blocks = [self.new_blockenv(first=True)]
+        self.blocks = []
+        self.blocks.append(self.new_blockenv(first=True))
 
     def new_blockenv(self, **extra):
         raise NotImplementedError
 
     @property
     def current_block(self):
-        return self.blocks[-1]
+        if self.blocks:
+            return self.blocks[-1]
+        else:
+            return None
 
     @contextlib.contextmanager
     def block(self, **extra):
@@ -533,7 +538,7 @@ class FullPythonCodeTransformer(ast.NodeTransformer, BlockBasedNodeVisitor):
             return self.current_block
         else:
             extra.update(vtemp=0)
-            return PythonBlockEnvManger(**extra)
+            return PythonBlockEnvManger(parent=self.current_block, **extra)
 
     def visit(self, node):
         if not getattr(node, "translated", False):
@@ -847,7 +852,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         if not scope and not first:
             return self.current_block
         else:
-            return PythonBlockEnvManger(**extra)
+            return PythonBlockEnvManger(parent=self.current_block, **extra)
 
     def generic_visit(self, node):
         self.not_support_error(node, action="work with")
@@ -950,8 +955,17 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     # -- Variables -- #
     def visit_Name(self, node):
         assert self.vaild_Name(node.id, allow_const=isinstance(node.ctx, Load))
+        block = self.current_block
+
         with self.noblock():
-            return node.id
+            if block.parent is None:
+                return node.id
+            elif node.id.startswith("__PC_"):
+                return node.id
+            elif node.id.startswith("__"):
+                raise NotImplementedError("start with __ are not support at now. :P")
+            else:
+                return node.id
 
     # -- Expressions -- #
     def visit_Expr(self, node):
@@ -1289,7 +1303,6 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         last_special_define_type = block.special_define_type
         block.set_special_define("loop_setup")
 
-        print("_L = _L or {};") # TODO
         try:
             length = 0
 

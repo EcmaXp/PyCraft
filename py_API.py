@@ -13,18 +13,20 @@ if not getmetatable(_M) or _G == _M:
     _M = setmetatable({"_G":_G}, {"__index":_G})
     setfenv(1, _M)
 
-global lua
+#global lua
 lua = {}
 lua.len = lambda obj: LUA_CODE("#obj")
 lua.concat = lambda *args: table.concat(args)
 lua.write = write or io.write
 lua.yield_ = coroutine['yield']
+lua.format = string.format
 for key, value in pairs(_G):
     lua[key] = value
 
 PY_OBJ_TAG = "#"
 LUA_OBJ_TAG = "@"
 
+BIT_WIDTH = 8 # 32 Bit System
 TAG = "[PY]"
 ObjLastID = 0
 inited = False
@@ -32,10 +34,10 @@ inited = False
 builtins = "builtins"
 
 ## This table are weaktable.
-ObjID = setmetatable({}, {"__mode":"k"})
-ObjValue = setmetatable({}, {"__mode":"k"})
-ObjPCEX = setmetatable({}, {"__mode":"k"})
+ObjData = setmetatable({}, {"__mode":"k"}) # i=id, v=value, h=hash
+ObjPCEX = setmetatable({}, {"__mode":"k"}) # small table for fast find
 Obj_FromID = setmetatable({}, {"__mode":"v"})
+
 BuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## must cleaned after collectgarbage()
 
@@ -59,7 +61,7 @@ def is_float(num):
     return math.floor(num) != num
 
 def is_pyobj(obj):
-    return ObjID[obj] is not nil
+    return ObjData[obj] is not nil
 
 global PObj
 def PObj(obj):
@@ -82,14 +84,16 @@ def require_pyobj(*objs):
 
     return true
 
-def register_pyobj(obj):
-    global ObjLastID
-    ObjLastID += 1
-    obj_id = ObjLastID
+raw_id = nil
+def register_pyobj(obj, obj_id):
+    if obj_id is nil:
+        obj_id = raw_id(obj)
 
-    ObjID[obj] = obj_id
+    assert ObjData[obj] is nil
+
+    ObjData[obj] = {}
+    ObjData[obj].i = obj_id
     Obj_FromID[obj_id] = obj
-    return obj
 
 def error(msg, level):
     if level is nil:
@@ -98,7 +102,7 @@ def error(msg, level):
     msg = LObj(msg)
 
     level += 1
-    msg = string.format("%s %s", TAG, tostring(msg))
+    msg = lua.format("%s %s", TAG, tostring(msg))
 
     lua.error(msg, level) #--[DEBUG; ERROR POINT]--#
 
@@ -122,7 +126,7 @@ def is_float(num):
 
     return math.floor(num) != num
 
-global _C3_MRO
+_C3_MRO = nil # define local
 class _C3_MRO(): # This is container. not like class.
     # https://gist.github.com/eric-wieser/3804277
     def merge(seqs):
@@ -214,9 +218,11 @@ def setup_base_class(cls):
         if idx is not nil:
             pcex[idx] = v
 
+    pcls = getmetatable(cls)
+
+    register_pyobj(cls)
     ObjPCEX[cls] = pcex
     InitalBuiltinTypes[cls] = false
-    register_pyobj(cls)
 
     cls.__mro__ = _C3_MRO.mro(cls)
 
@@ -371,7 +377,7 @@ def OP_Math2_Pow(vx, wx, zx): # ternary_op (with i)
 global _OP__Is__, _OP__IsNot__
 def  _OP__Is__(a, b):
     require_pyobj(a, b)
-    return ObjID[a] == ObjID[b]
+    return ObjData[a].i == ObjData[b].i
 
 def _OP__IsNot__(a, b):
     return not _OP__Is__(a, b)
@@ -482,7 +488,7 @@ def repr(obj):
     if is_pyobj(obj):
         return _OP__Repr__(obj)
     else:
-        return string.format("%s(%s)", LUA_OBJ_TAG, tostring(obj))
+        return lua.format("%s(%s)", LUA_OBJ_TAG, tostring(obj))
 
 def print(*args):
     arr = []
@@ -507,15 +513,18 @@ def isinstance(obj, targets):
     require_pyobj(obj)
 
     cls = type(obj)
-    mro = cls.mro()
-    assert type(mro) == list
+    #TODO: how to?
+    #mro = cls.mro()
+    #assert type(mro) == list
+    mro = cls.__mro__
+    assert type(mro) == tuple
 
     if type(targets) == tuple:
         targets = LObj(targets)
     else:
         targets = {targets}
 
-    for _, supercls in pairs(ObjValue[mro]):
+    for _, supercls in pairs(_OP__Lua__(mro)):
         require_pyobj(supercls)
         for k, target in pairs(targets):
             if supercls == target:
@@ -529,12 +538,15 @@ def issubclass(cls, targets):
     if type(cls) != type:
         error("issubclass() arg 1 must be a class")
 
+    mro = cls.__mro__
+    assert type(mro) == tuple
+
     if type(targets) == tuple:
         targets = LObj(targets)
     else:
         targets = {targets}
 
-    for _, supercls in pairs(ObjValue[mro]):
+    for _, supercls in pairs(_OP__Lua__(mro)):
         require_pyobj(supercls)
         for k, target in pairs(targets):
             if supercls == target:
@@ -543,7 +555,7 @@ def issubclass(cls, targets):
 
 def id(obj):
     if is_pyobj(obj):
-        return int(ObjID[obj])
+        return int(ObjData[obj].i)
 
     Fail_OP_Raw(obj, "__id!")
 
@@ -561,6 +573,23 @@ __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 _ = nil
 ## end?
 
+def _raw_id(obj):
+    return tonumber(string.sub(tostring(obj), 8), 16)
+
+def raw_id(obj):
+    if lua.type(obj) != "table":
+        Fail_OP_Raw(obj, "__raw_id!")
+
+    cls = getmetatable(obj)
+    if cls is nil:
+        obj_id = _raw_id(obj)
+    else:
+        setmetatable(obj, nil)
+        obj_id = _raw_id(obj)
+        setmetatable(obj, cls)
+
+    return obj_id
+
 global object
 @setup_base_class
 class object():
@@ -577,17 +606,18 @@ class object():
         return _OP__Setattr__(self, key, value)
 
     def __tostring(self):
-        return string.format("%s(%s)", PY_OBJ_TAG, LObj(repr(self)))
+        return lua.format("%s(%s)", PY_OBJ_TAG, LObj(repr(self)))
 
     def __new__(cls, *args):
         instance = {}
-        instance = register_pyobj(instance)
+        register_pyobj(instance, _raw_id(instance))
         lua.setmetatable(instance, cls)
         _OP__Init__(instance, *args)
 
         return instance
 
     def __getattribute__(self, k):
+        # TODO: support non str object (with PyObj)
         v = rawget(self, k)
         if v is not nil:
             return v
@@ -600,7 +630,11 @@ class object():
             else:
                 return v
 
-        error(string.format("Not found '%s' attribute.", k))
+        for k, v in pairs(self):
+            if _OP__Eq__(k, v):
+                return v
+
+        error(lua.format("Not found '%s' attribute.", k))
 
     def __setattr__(self, key, value):
         cls = type(self)
@@ -614,6 +648,15 @@ class object():
         # That is safe?
         object.__setattr__(self, key, nil)
 
+    def __eq__(self, other):
+        return self == other
+
+    def __ne__(self, other):
+        return self != other
+
+    def __hash__(self, other):
+        return id(self)
+
     def __str__(self):
         return _OP__Repr__(self)
 
@@ -621,23 +664,25 @@ class object():
         mtable = getmetatable(self)
         name = mtable.__name__
         oid = id(self)
+        oid = lua.format("000000000%X", LObj(oid))
+        oid = lua.string.sub(oid, -BIT_WIDTH)
 
-        return str(strinf.format("<object %s at %s>", LObj(name), LObj(oid)))
+        return str(lua.format("<object %s at 0x%s>", LObj(name), oid))
+
+    def __bool__(self):
+        return True
 
 global type
 @setup_base_class
 class type(object):
     def __call__(cls, *args):
-        instance = cls.__new__(cls, *args)
-        register_pyobj(instance)
-
-        return instance
+        return cls.__new__(cls, *args)
 
     def __repr__(cls):
         return str(lua.concat("<class '", LObj(cls.__name__), "'>"))
 
     def mro(cls):
-        return list(ObjValue[cls.__mro__]) # TODO: list(cls.__mro__) direct!
+        return list(ObjData[cls.__mro__].v) # TODO: list(cls.__mro__) direct!
 
 @setup_base_class
 @setup_hide_class
@@ -753,16 +798,17 @@ class LuaObject(object):
         if is_pyobj(obj):
             error(Exception("Not allowed wrapping python object!"))
 
-        ObjValue[self] = obj
+        assert obj != nil
+        ObjData[self].v = obj
 
     def __str__(self):
         return str(_OP__Repr__(self))
 
     def __repr__(self):
-        return str(tostring(ObjValue[self]))
+        return str(tostring(ObjData[self].v))
 
     def __lua__(self):
-        return ObjValue[self]
+        return ObjData[self].v
 
 global generator
 @setup_basic_class
@@ -781,10 +827,10 @@ class generator(LuaObject):
         return LObj(genbody)()
 
     def __repr__(self):
-        return str(tostring(ObjValue[self]))
+        return str(tostring(ObjData[self].v))
 
     def __lua__(self):
-        t = ObjValue[self]
+        t = ObjData[self].v
         def genbody():
             success, value = coroutine.resume(t)
             if not success:
@@ -829,11 +875,46 @@ class list(LuaObject):
 
         LuaObject.__init__(self, start)
 
+    def __getitem__(self, x):
+        x = _OP__Index__(x)
+        x = LObj(x)
+
+        cur = ObjData[self].v
+        assert x >= 0
+        while x != 0:
+            cur = cur.n
+            x -= 1
+
+        return cur.v
+
     def __repr__(self):
-        pass
+        ret = {}
+        idx = 1
+        sep = ""
+
+        ret[idx] = "["; idx += 1
+        cur = ObjData[self].v
+        while cur is not nil:
+            ret[idx] = sep; idx += 1
+            ret[idx] = LObj(repr(cur.v)); idx += 1
+            sep = ", "
+
+            cur = cur.n
+
+        ret[idx] = "]"; idx += 1
+        return table.concat(ret)
 
     def __lua__(self):
-        error(Exception("Not allowed "))
+        #TODO: make use iter or other thing for don't copy.
+        ret = {}
+        idx = 1
+
+        cur = ObjData[self].v
+        while cur is not nil:
+            ret[idx] = cur.v; idx += 1
+            cur = cur.n
+
+        return ret
 
 global tuple
 @setup_basic_class
@@ -846,18 +927,16 @@ class tuple(LuaObject):
         return self.make_repr("(", ")")
 
     def __len__(self):
-        return int(lua.len(ObjValue[self]))
+        return int(lua.len(ObjData[self].v))
 
     def __getitem__(self, x):
-        assert is_pyobj(x)
-        if isinstance(x, int) == True:
-            return ObjValue[self][LObj(x) + 1]
-
-        lua.print(isinstance(x, int), x)
-        error("Not support unknown type.")
+        x = _OP__Index__(x)
+        x = LObj(x)
+        assert x >= 0
+        return ObjData[self].v[LObj(x) + 1]
 
     def __repr__(self):
-        value = ObjValue[self]
+        value = ObjData[self].v
         ret = {}
         idx = 1
 
@@ -876,7 +955,7 @@ class tuple(LuaObject):
         return table.concat(ret)
 
     def __iter__(self):
-        value = ObjValue[self]
+        value = ObjData[self].v
         idx = 1
 
         @_OP__SetupGenFunc__
@@ -888,7 +967,7 @@ class tuple(LuaObject):
 
         return body()
 
-list = tuple # list are broken, wait until fix. (with linked list!)
+#list = tuple # list are broken, wait until fix. (with linked list!)
 
 global str
 @setup_basic_class
@@ -898,77 +977,43 @@ class str(LuaObject):
             value = _OP__Str__(value)
             value = LObj(value)
 
-        ObjValue[self] = value
+        ObjData[self].v = value
 
     def __str__(self):
         return self
 
     def __repr__(self):
-        return str(lua.concat("'", ObjValue[self], "'"))
+        return str(lua.concat("'", ObjData[self].v, "'"))
 
     def __len__(self):
-        return int(lua.len(ObjValue[self]))
-
-global bool
-@setup_basic_class
-class bool(LuaObject):
-    def __new__(cls, value):
-        if not inited:
-            instance = object.__new__(cls)
-            ObjValue[instance] = value
-            return instance
-
-        if is_pyobj(value):
-            value = _OP__Bool__(value)
-            # check type
-        else:
-            value = value and true or false
-
-        if value == true:
-            return True
-        elif value == false:
-            return False
-        elif is_pyobj(value) and type(value) == bool:
-            return value
-
-        error("__Bool__ are returned unknown value.")
-
-    def __repr__(self):
-        value = ObjValue[self]
-        if value == true:
-            return str("True")
-        elif value == false:
-            return str("False")
-
-    def __lua__(self):
-        return ObjValue[self]
+        return int(lua.len(ObjData[self].v))
 
 @setup_basic_class
 @setup_hide_class
 class LuaNum(LuaObject):
     def __add__(self, other):
-        return ObjValue[self] + ObjValue[other]
+        return ObjData[self].v + ObjData[other].v
 
     def __sub__(self, other):
-        return ObjValue[self] - ObjValue[other]
+        return ObjData[self].v - ObjData[other].v
 
     def __mul__(self, other):
-        return ObjValue[self] * ObjValue[other]
+        return ObjData[self].v * ObjData[other].v
 
     def __truediv__(self, other):
-        return float(ObjValue[self] / ObjValue[other])
+        return float(ObjData[self].v / ObjData[other].v)
 
     def __radd__(self, other):
-        return ObjValue[other] + ObjValue[self]
+        return ObjData[other].v + ObjData[self].v
 
     def __rsub__(self, other):
-        return ObjValue[other] - ObjValue[self]
+        return ObjData[other].v - ObjData[self].v
 
     def __rmul__(self, other):
-        return ObjValue[other] * ObjValue[self]
+        return ObjData[other].v * ObjData[self].v
 
     def __rtruediv__(self, other):
-        return float(ObjValue[other] / ObjValue[self])
+        return float(ObjData[other].v / ObjData[self].v)
 
 def int_chk_other(other):
     if isinstance(other, int) == False: return NotImplemented
@@ -994,28 +1039,93 @@ class int(LuaNum):
     def __rmul__(self, other):
         return int_chk_other(other) or int(LuaNum.__rmul__(self, other))
 
+    def __hash__(self):
+        pass
+
+    def __index__(self):
+        return int(ObjData[self].v)
+
+BOOL_TRUE = 1
+BOOL_FALSE = 0
+
+global bool
+@setup_basic_class
+class bool(int):
+    def __init__(cls):
+        pass
+
+    def __new__(cls, value):
+        if not inited:
+            instance = object.__new__(cls)
+            if value == true:
+                value = BOOL_TRUE
+            elif value == false:
+                value = BOOL_FALSE
+            ObjData[instance].v = value
+            return instance
+
+        if is_pyobj(value):
+            value = _OP__Bool__(value)
+            # check type
+        else:
+            value = value and true or false
+
+        if value == true:
+            return True
+        elif value == false:
+            return False
+        elif is_pyobj(value) and type(value) == bool:
+            return value
+
+        error("__Bool__ are returned unknown value.")
+
+    def __bool__(self):
+        return self
+
+    def __repr__(self):
+        value = ObjData[self].v
+        if value == BOOL_TRUE:
+            return str("True")
+        elif value == BOOL_FALSE:
+            return str("False")
+
+    def __lua__(self):
+        value = ObjData[self].v
+        if value == BOOL_TRUE:
+            return true
+        elif value == BOOL_FALSE:
+            return false
+
 # int_cache = {}
+
+def float_chk_other(other):
+    if isinstance(other, int) == True:
+        return
+    elif isinstance(other, float) == True:
+        return
+    else:
+        return NotImplemented
 
 global float
 @setup_basic_class
 class float(LuaNum):
     def __add__(self, other):
-        return float(LuaNum.__add__(self, other))
+        return float_chk_other(other) or float(LuaNum.__add__(self, other))
 
     def __sub__(self, other):
-        return float(LuaNum.__sub__(self, other))
+        return float_chk_other(other) or float(LuaNum.__sub__(self, other))
 
     def __mul__(self, other):
-        return float(LuaNum.__mul__(self, other))
+        return float_chk_other(other) or float(LuaNum.__mul__(self, other))
 
     def __radd__(self, other):
-        return float(LuaNum.__radd__(self, other))
+        return float_chk_other(other) or float(LuaNum.__radd__(self, other))
 
     def __rsub__(self, other):
-        return float(LuaNum.__rsub__(self, other))
+        return float_chk_other(other) or float(LuaNum.__rsub__(self, other))
 
     def __rmul__(self, other):
-        return float(LuaNum.__rmul__(self, other))
+        return float_chk_other(other) or float(LuaNum.__rmul__(self, other))
 
 global dict
 @setup_basic_class
@@ -1097,9 +1207,11 @@ def Access_ForValue():
 
 Access_ForValue()
 
-print(lua.string.format("%s", "test"))
+print(lua.format("%s", "test"))
 print(str.mro())
 print(object.mro())
 print(_OP__Truediv__(int(3), int(6)))
 print(int.mro())
-print(str("Hello world!"))
+print(object())
+print(_OP__Add__(True, True))
+print(_OP__Getitem__(list([int(1), int(2), int(3), int(4)]), int(0)))
