@@ -29,6 +29,11 @@ local ObjPCEX = setmetatable({}, {['__mode'] = 'k'});
 local Obj_FromID = setmetatable({}, {['__mode'] = 'v'});
 local BuiltinTypes = setmetatable({}, {['__mode'] = 'k'});
 local InitalBuiltinTypes = {};
+local metatable_events = {'__index', '__newindex', '__mode', '__call', '__metatable', '__tostring', '__len', '__gc', '__unm', '__add', '__sub', '__mul', '__div', '__mod', '__pow', '__concat', '__eq', '__lt', '__le'};
+local metatable_events_rev = {};
+for k, v in pairs(metatable_events) do
+  metatable_events_rev[v] = k;
+end;
 local builtin_methods = {'__new__', '__init__', '__del__', '__repr__', '__str__', '__bytes__', '__format__', '__lt__', '__le__', '__eq__', '__ne__', '__gt__', '__ge__', '__hash__', '__bool__', '__getattr__', '__getattribute__', '__setattr__', '__delattr__', '__dir__', '__get__', '__set__', '__delete__', '__slots__', '__call__', '__len__', '__getitem__', '__setitem__', '__delitem__', '__iter__', '__reversed__', '__contains__', '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__', '__mod__', '__divmod__', '__pow__', '__lshift__', '__rshift__', '__and__', '__xor__', '__or__', '__radd__', '__rsub__', '__rmul__', '__rtruediv__', '__rfloordiv__', '__rmod__', '__rdivmod__', '__rpow__', '__rlshift__', '__rrshift__', '__rand__', '__rxor__', '__ror__', '__iadd__', '__isub__', '__imul__', '__itruediv__', '__ifloordiv__', '__imod__', '__ipow__', '__ilshift__', '__irshift__', '__iand__', '__ixor__', '__ior__', '__neg__', '__pos__', '__abs__', '__invert__', '__complex__', '__int__', '__float__', '__round__', '__index__', '__enter__', '__exit__', '__lua__'};
 local builtin_methods_rev = {};
 for k, v in pairs(builtin_methods) do
@@ -122,7 +127,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
   scope.__name__ = '_C3_MRO';
   function doload()
     function merge(seqs)
-      local seq, nonemptyseqs, _, set_break, cand, intail;
+      local _, intail, cand, seq, nonemptyseqs, set_break;
       local res = {};
       while true do
         nonemptyseqs = {};
@@ -140,7 +145,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
           if not set_break then
             cand = seq[1];
             function intail()
-              local _, nonemptyseq, cls, j;
+              local _, cls, nonemptyseq, j;
               for _, nonemptyseq in ipairs(nonemptyseqs) do
                 for j, cls in ipairs(nonemptyseq) do
                   if j > 1 and cls == cand then
@@ -189,7 +194,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
     end;
     setfenv(mro, _M);
     function get_cached_mro(C)
-      local k, v;
+      local v, k;
       if not inited then
         if C.__mro__ == nil then
           return nil;
@@ -209,7 +214,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
   return scope;
 end)(_M);
 local function hide_class_from_seq(seq)
-  local k, v;
+  local v, k;
   local new_seq = {};
   local idx = 1;
   for k, v in pairs(seq) do
@@ -221,7 +226,10 @@ local function hide_class_from_seq(seq)
   return new_seq;
 end;
 local function setup_base_class(cls)
-  local k, idx, v;
+  local idx, v, k;
+  register_pyobj(cls);
+  ObjData[cls].c = {};
+  local clsdata = ObjData[cls].c;
   local pcex = {};
   for k, v in pairs(cls) do
     idx = builtin_methods_rev[k];
@@ -230,10 +238,9 @@ local function setup_base_class(cls)
     end;
   end;
   local pcls = getmetatable(cls);
-  register_pyobj(cls);
   ObjPCEX[cls] = pcex;
   InitalBuiltinTypes[cls] = false;
-  cls.__mro__ = _C3_MRO.mro(cls);
+  clsdata.__mro__ = _C3_MRO.mro(cls);
   return cls;
 end;
 local function setup_basic_class(cls)
@@ -246,15 +253,18 @@ local function setup_hide_class(cls)
   return cls;
 end;
 local function register_builtins_class(cls)
+  local clsdata = ObjData[cls].c;
   if cls ~= object then
-    cls.__base__ = object;
+    clsdata.__base__ = object;
   else
-    cls.__base__ = None;
+    clsdata.__base__ = None;
   end;
-  cls.__name__ = str(rawget(cls, '__name__'));
-  cls.__module__ = str('builtins');
-  cls.__bases__ = tuple(hide_class_from_seq(cls.__bases__));
-  cls.__mro__ = tuple(hide_class_from_seq(cls.__mro__));
+  clsdata.__name__ = str(cls.__name__);
+  clsdata.__module__ = str('builtins');
+  clsdata.__bases__ = tuple(hide_class_from_seq(cls.__bases__));
+  clsdata.__mro__ = tuple(hide_class_from_seq(clsdata.__mro__));
+  cls.__name__ = nil;
+  cls.__bases__ = nil;
   InitalBuiltinTypes[cls] = true;
   return cls;
 end;
@@ -398,10 +408,10 @@ local function OP_Math2_Pow(vx, wx, zx)
 end;
 function _OP__Is__(a, b)
   require_pyobj(a, b);
-  return ObjData[a].i == ObjData[b].i;
+  return bool(ObjData[a].i == ObjData[b].i);
 end;
 function _OP__IsNot__(a, b)
-  return not _OP__Is__(a, b);
+  return bool(not LObj(_OP__Is__(a, b)));
 end;
 function _OP__ForIter__(ret)
   return LObj(iter(ret));
@@ -519,7 +529,7 @@ function print(...)
   lua.write(data);
 end;
 function isinstance(obj, targets)
-  local k, _, supercls, target;
+  local _, target, supercls, k;
   require_pyobj(obj);
   local cls = type(obj);
   local mro = cls.__mro__;
@@ -540,7 +550,7 @@ function isinstance(obj, targets)
   return False;
 end;
 function issubclass(cls, targets)
-  local k, _, supercls, target;
+  local _, target, supercls, k;
   require_pyobj(obj);
   if type(cls) ~= type then
     error('issubclass() arg 1 must be a class');
@@ -567,6 +577,9 @@ function id(obj)
     return int(ObjData[obj].i);
   end;
   Fail_OP_Raw(obj, '__id!');
+end;
+function dir(obj)
+  return _OP__Dir__(obj);
 end;
 function iter(ret)
   ret = _OP__Iter__(ret);
@@ -631,6 +644,34 @@ object = (function(_M)--(object)
       return instance;
     end;
     setfenv(__new__, _M);
+    function __dir__(self)
+      local v, k;
+      local cls = getmetatable(self);
+      local ret = {};
+      for k, v in pairs(self) do
+        ret[k] = true;
+      end;
+      for k, v in pairs(cls) do
+        ret[k] = true;
+      end;
+      local ret2 = {};
+      local idx = 1;
+      for k, v in pairs(ret) do
+        if not metatable_events_rev[k] then
+          ret2[idx] = k;
+          idx = (idx + 1);
+        end;
+      end;
+      ret = nil;
+      table.sort(ret2);
+      local ret3 = {};
+      for k, v in pairs(ret2) do
+        ret3[k] = str(v);
+      end;
+      ret2 = nil;
+      return list(ret3);
+    end;
+    setfenv(__dir__, _M);
     function __getattribute__(self, k)
       local v = rawget(self, k);
       if v ~= nil then
@@ -642,11 +683,6 @@ object = (function(_M)--(object)
         if lua.type(v) == 'function' then
           return (function(...) return v(self, unpack({...})); end);
         else
-          return v;
-        end;
-      end;
-      for k, v in pairs(self) do
-        if _OP__Eq__(k, v) then
           return v;
         end;
       end;
@@ -711,6 +747,17 @@ type = (function(_M)--(type: object)
   scope.__bases__ = {object};
   scope.__name__ = 'type';
   function doload()
+    function __getattribute__(cls, key)
+      local clsdata = ObjData[cls].c;
+      if clsdata ~= nil then
+        local value = clsdata[key];
+        if value ~= nil then
+          return value;
+        end;
+      end;
+      return object.__getattribute__(cls, key);
+    end;
+    setfenv(__getattribute__, _M);
     function __call__(cls, ...)
       local args = {...};
       return cls.__new__(cls, ...);
@@ -828,14 +875,14 @@ Exception = (function(_M)--(Exception: BaseException)
   return scope;
 end)(_M);
 Exception = setup_basic_class(Exception);
-TypeError = (function(_M)--(TypeError: Exception, BaseException)
+TypeError = (function(_M)--(TypeError: Exception)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
-    for k,c in pairs({BaseException, Exception}) do
+    for k,c in pairs({Exception}) do
       for k,v in pairs(c) do o[k]=v end
     end
   end)(scope);
-  scope.__bases__ = {Exception, BaseException};
+  scope.__bases__ = {Exception};
   scope.__name__ = 'TypeError';
   function doload()
   end;
@@ -844,14 +891,14 @@ TypeError = (function(_M)--(TypeError: Exception, BaseException)
   return scope;
 end)(_M);
 TypeError = setup_basic_class(TypeError);
-UnstableException = (function(_M)--(UnstableException: Exception, BaseException)
+UnstableException = (function(_M)--(UnstableException: Exception)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
-    for k,c in pairs({BaseException, Exception}) do
+    for k,c in pairs({Exception}) do
       for k,v in pairs(c) do o[k]=v end
     end
   end)(scope);
-  scope.__bases__ = {Exception, BaseException};
+  scope.__bases__ = {Exception};
   scope.__name__ = 'UnstableException';
   function doload()
   end;
@@ -860,6 +907,22 @@ UnstableException = (function(_M)--(UnstableException: Exception, BaseException)
   return scope;
 end)(_M);
 UnstableException = setup_basic_class(UnstableException);
+KeyError = (function(_M)--(KeyError: Exception)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({Exception}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {Exception};
+  scope.__name__ = 'KeyError';
+  function doload()
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+KeyError = setup_basic_class(KeyError);
 
 local BuiltinConstType = (function(_M)--(BuiltinConstType: object)
   local scope = setmetatable({}, {__index=_M})
@@ -1077,21 +1140,24 @@ list = (function(_M)--(list: LuaObject)
   scope.__name__ = 'list';
   function doload()
     function __init__(self, value)
-      local k, v;
-      local start = {};
+      local v, k;
+      local core = {};
       local new = nil;
-      local cur = start;
+      local cur = core;
       for k, v in pairs(value) do
         new = {};
-        cur.v = v;
+        new.v = v;
         new.p = cur;
         cur.n = new;
         cur = new;
       end;
-      if new.p then
-        new.p.n = nil;
+      if core.n then
+        core.n.p = nil;
       end;
-      LuaObject.__init__(self, start);
+      if new and new.p then
+        core.p = new;
+      end;
+      LuaObject.__init__(self, core);
     end;
     setfenv(__init__, _M);
     function __getitem__(self, x)
@@ -1112,7 +1178,7 @@ list = (function(_M)--(list: LuaObject)
       local sep = '';
       ret[idx] = '[';
       idx = (idx + 1);
-      local cur = ObjData[self].v;
+      local cur = ObjData[self].v.n;
       while cur ~= nil do
         ret[idx] = sep;
         idx = (idx + 1);
@@ -1175,7 +1241,7 @@ tuple = (function(_M)--(tuple: LuaObject)
     end;
     setfenv(__getitem__, _M);
     function __repr__(self)
-      local k, v;
+      local v, k;
       local value = ObjData[self].v;
       local ret = {};
       local idx = 1;
@@ -1217,6 +1283,108 @@ tuple = (function(_M)--(tuple: LuaObject)
   return scope;
 end)(_M);
 tuple = setup_basic_class(tuple);
+dict = (function(_M)--(dict: LuaObject)
+  local scope = setmetatable({}, {__index=_M})
+;(function(o,c,k,v)
+    for k,c in pairs({LuaObject}) do
+      for k,v in pairs(c) do o[k]=v end
+    end
+  end)(scope);
+  scope.__bases__ = {LuaObject};
+  scope.__name__ = 'dict';
+  function doload()
+    function __init__(self, obj)
+      LuaObject.__init__(self, {});
+      ObjData[self].changed = false;
+      ObjData[self].length = 0;
+      dict.update(self, obj);
+    end;
+    setfenv(__init__, _M);
+    function update(self, obj)
+      local v, k;
+      for k, v in pairs(obj) do
+        _OP__Setitem__(self, k, v);
+      end;
+    end;
+    setfenv(update, _M);
+    function __setitem__(self, key, value)
+      local t, a;
+      assert(require_pyobj(key, value));
+      local data = ObjData[self];
+      local target = data.v;
+      local hk = _OP__Hash__(key);
+      if target[hk] == nil then
+        data.changed = true;
+        data.length = (data.length + 1);
+        target[hk] = {{key, value}};
+        return;
+      end;
+      local line = target[hk];
+      for a, t in pairs(line) do
+        if _OP__Eq__(key, t[1]) then
+          t[1] = key;
+          t[2] = value;
+          return;
+        end;
+      end;
+      data.changed = true;
+      data.length = (data.length + 1);
+      line[(lua.len(line) + 1)] = {key, value};
+    end;
+    setfenv(__setitem__, _M);
+    function __getitem__(self, key, value)
+      local t, a;
+      assert(require_pyobj(key, value));
+      local data = ObjData[self];
+      local target = data.v;
+      local hk = _OP__Hash__(key);
+      if target[hk] == nil then
+        error(KeyError(key));
+      end;
+      local line = target[hk];
+      for a, t in pairs(line) do
+        if _OP__Eq__(key, t[1]) then
+          return t[2];
+        end;
+      end;
+      error(KeyError(key));
+    end;
+    setfenv(__getitem__, _M);
+    function __lua__(self)
+    end;
+    setfenv(__lua__, _M);
+    function __repr__(self)
+      local line, _, r;
+      local target = ObjData[self].v;
+      local ret = {};
+      local idx = 1;
+      local sep = '';
+      ret[idx] = '{';
+      idx = (idx + 1);
+      for _, line in pairs(target) do
+        for _, r in pairs(line) do
+          ret[idx] = sep;
+          idx = (idx + 1);
+          ret[idx] = LObj(repr(r[1]));
+          idx = (idx + 1);
+          ret[idx] = ': ';
+          idx = (idx + 1);
+          ret[idx] = LObj(repr(r[2]));
+          idx = (idx + 1);
+          sep = ', ';
+        end;
+      end;
+      ret[idx] = '}';
+      idx = (idx + 1);
+      return table.concat(ret);
+    end;
+    setfenv(__repr__, _M);
+  end;
+  setfenv(doload, scope);
+  doload();
+  return scope;
+end)(_M);
+dict = setup_basic_class(dict);
 str = (function(_M)--(str: LuaObject)
   local scope = setmetatable({}, {__index=_M})
 ;(function(o,c,k,v)
@@ -1295,6 +1463,14 @@ local LuaNum = (function(_M)--(LuaNum: LuaObject)
       return float((ObjData[other].v / ObjData[self].v));
     end;
     setfenv(__rtruediv__, _M);
+    function __eq__(self, other)
+      return bool(ObjData[self].v == ObjData[other].v);
+    end;
+    setfenv(__eq__, _M);
+    function __ne__(self, other)
+      return bool(ObjData[self].v ~= ObjData[other].v);
+    end;
+    setfenv(__ne__, _M);
   end;
   setfenv(doload, scope);
   doload();
@@ -1342,6 +1518,7 @@ int = (function(_M)--(int: LuaNum)
     end;
     setfenv(__rmul__, _M);
     function __hash__(self)
+      return ObjData[self].v;
     end;
     setfenv(__hash__, _M);
     function __index__(self)
@@ -1472,22 +1649,6 @@ float = (function(_M)--(float: LuaNum)
   return scope;
 end)(_M);
 float = setup_basic_class(float);
-dict = (function(_M)--(dict: LuaObject)
-  local scope = setmetatable({}, {__index=_M})
-;(function(o,c,k,v)
-    for k,c in pairs({LuaObject}) do
-      for k,v in pairs(c) do o[k]=v end
-    end
-  end)(scope);
-  scope.__bases__ = {LuaObject};
-  scope.__name__ = 'dict';
-  function doload()
-  end;
-  setfenv(doload, scope);
-  doload();
-  return scope;
-end)(_M);
-dict = setup_basic_class(dict);
 local function parse_func_args(args, kwargs, al, a, ...)
   local fargs_ = {...};
   return parse_func_kwargs(args, kwargs, al, a, 0, None);
@@ -1548,11 +1709,15 @@ local function Access_ForValue()
   lua.print('1', test);
 end;
 Access_ForValue();
+local r = dict({[int(1)] = int(2), [int(3)] = int(4), [int(1)] = int(3)});
+print('!', _OP__Getitem__(r, int(3)));
+print(a, b, c);
 print(lua.format('%s', 'test'));
 print(str.mro());
 print(object.mro());
 print(_OP__Truediv__(int(3), int(6)));
 print(int.mro());
 print(object());
+print(dir(object()));
 print(_OP__Add__(True, True));
 print(_OP__Getitem__(list({int(1), int(2), int(3), int(4)}), int(0)));
