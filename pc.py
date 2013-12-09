@@ -175,6 +175,27 @@ LUA_KEYWORDS = {
     'while',
 }
 
+LUA_KEYWORDS_WITHOUT_CONST = {
+    'and',
+    'break',
+    'do',
+    'else',
+    'elseif',
+    'end',
+    'for',
+    'function',
+    'if',
+    'in',
+    'local',
+    'not',
+    'or',
+    'repeat',
+    'return',
+    'then',
+    'until',
+    'while',
+}
+
 SPECIAL_NAMES = {"LUA_CODE"} | (LUA_KEYWORDS - PYTHON_KEYWORDS)
 SPECIAL_NAMES = {
     'LUA_CODE', # THIS IS LITE LUA's INTERNAL API NAME (FOR EXECUTE LUA CODE)
@@ -302,6 +323,14 @@ class BaseDefineManager(BaseBlockEnvManager):
         self.defined = set()
         self.default_defined = NotImplemented
         self.defined_type_table = {}
+        self.special_defined = {}
+        self.special_define_type = None
+
+    def set_special_define(self, tname):
+        self.special_define_type = tname
+
+    def clear_special_defined(self):
+        self.special_defined.clear()
 
     def is_defined(self, value):
         return value in self.defined
@@ -315,6 +344,8 @@ class BaseDefineManager(BaseBlockEnvManager):
             raise RuntimeError("%s are already defined." % (value,))
 
         self.defined.add(value)
+        if self.special_define_type is not None:
+            self.special_defined.setdefault(value, self.special_define_type)
 
         if default_defined is not None:
             default_defined.add(value)
@@ -331,7 +362,7 @@ class BaseDefineManager(BaseBlockEnvManager):
             define_type = self.default_defined_type
             define_type = self.defined_type_table.get(define_type)
 
-            if define_type:
+            if define_type and self.special_define_type is None:
                 return define_type + " "
 
         return ""
@@ -418,7 +449,7 @@ class BlockBasedNodeVisitor(ast.NodeVisitor):
         self.blocks.append(block_env)
 
         try:
-            yield
+            yield block_env
         finally:
             self.blocks.pop()
             self.exit_block(block_env)
@@ -457,6 +488,16 @@ class BlockBasedCodeGenerator(BlockBasedNodeVisitor):
         self.fp = io.StringIO()
         self.lastend = "\n"
         self.lineno = 1
+
+    @contextlib.contextmanager
+    def capture_fp(self):
+        fp = self.fp
+        self.fp = cfp = io.StringIO()
+
+        try:
+            yield cfp
+        finally:
+            self.fp = fp
 
     def enter_block(self, block_env):
         self.indent += 1
@@ -795,11 +836,12 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     def __init__(self, filename=None, debug_info=False, enable_global=False):
         super().__init__(filename=filename, debug_info=debug_info)
-        self.enable_global = False
+        self.enable_global = enable_global
 
     def reset(self):
         super().reset()
-        self.enable_special = False
+        self.special_enabled = False
+        self.access_for_value_allowed = True
 
     def new_blockenv(self, *, scope=False, first=False, **extra):
         if not scope and not first:
@@ -907,6 +949,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
     # -- Variables -- #
     def visit_Name(self, node):
+        assert self.vaild_Name(node.id, allow_const=isinstance(node.ctx, Load))
         with self.noblock():
             return node.id
 
@@ -1009,11 +1052,11 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 assert len(node.args) == 1
                 assert isinstance(node.args[0], Str)
                 assert node.args[0].s == "YES"
-                self.enable_special = True
+                self.special_enabled = True
                 return ""
-            elif not self.enable_special:
+            elif not self.special_enabled:
                 pass
-            elif func in ("__PC_ECMAXP_SETUP_AUTO_GLOBAL",):
+            elif func in ("__PC_ECMAXP_SETUP_AUTO_GLOBAL", "__PC_ECMAXP_SETUP_ACCESS_FOR_VALUE"):
                 assert len(node.args) == 1
                 assert isinstance(node.args[0], Name)
                 arg = node.args[0].id
@@ -1024,6 +1067,8 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                         block.default_defined = block.global_defined
                     else:
                         block.default_defined = block.local_defined
+                elif func == "__PC_ECMAXP_SETUP_ACCESS_FOR_VALUE":
+                    self.access_for_value_allowed = arg
                 else:
                     assert False
                 return ""
@@ -1191,7 +1236,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         raise IsControlFlow
 
-    def _visit_Loop(self, node):
+    def _visit_Loop(self, node, *, For_info=None):
         print = self.print
         zrand = random.randint(100000, 999999)
         hascont = False
@@ -1201,21 +1246,32 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         # TODO: break, continue in block define?
 
         with self.noblock():
-            with self.block():
-                for subnode in node.body:
-                    if isinstance(subnode, ast.Continue):
-                        hascont = True
-                        contname = "ZCONT_%i" % zrand
-                        print("goto", contname)
-                    elif isinstance(subnode, ast.Break) and node.orelse:
-                        hasbreak = True
-                        breakname = "ZBREAK_%i" % zrand
-                        print("goto", breakname)
-                    else:
-                        self.print_node(subnode)
+            with self.block() as block:
+                last_special_define_type = block.special_define_type
+                block.set_special_define("loop")
 
-                if hascont:
-                    print("::", contname, "::", sep="")
+                if For_info:
+                    target, args = For_info
+                    print(", ".join(args), "=", target)
+
+                try:
+                    for subnode in node.body:
+                        if isinstance(subnode, ast.Continue):
+                            hascont = True
+                            contname = "ZCONT_%i" % zrand
+                            print("goto", contname)
+                        elif isinstance(subnode, ast.Break) and node.orelse:
+                            hasbreak = True
+                            breakname = "ZBREAK_%i" % zrand
+                            print("goto", breakname)
+                        else:
+                            self.print_node(subnode)
+
+                    if hascont:
+                        print("::", contname, "::", sep="")
+                finally:
+                    block.set_special_define(last_special_define_type)
+
             print("end;")
 
             if node.orelse:
@@ -1229,31 +1285,50 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
     def visit_For(self, node):
         print = self.print
 
-        with self.noblock():
-            if isinstance(node.target, Tuple):
-                block = self.current_block
-                targets = []
-                for subnode in node.target.elts:
-                    name, _ = self._get_Name(subnode)
-                    if block.define_short(name):
-                        targets.append(name)
+        block = self.current_block
+        last_special_define_type = block.special_define_type
+        block.set_special_define("loop_setup")
 
-                if targets:
-                    # FIXME
-                    print(block.default_defined_type, ", ".join(targets), ";")
+        print("_L = _L or {};") # TODO
+        try:
+            length = 0
 
-                target = ", ".join(map(self.visit, node.target.elts))
-            elif isinstance(node.target, Name):
-                target = self.visit(node.target)
-            else:
-                self.not_support_error(node.target)
+            with self.noblock():
+                if isinstance(node.target, Tuple):
+                    block = self.current_block
+                    targets = []
+                    for subnode in node.target.elts:
+                        name, _ = self._get_Name(subnode)
+                        if block.define_short(name):
+                            targets.append(name)
 
-            iter = self.visit(node.iter)
+                    if targets:
+                        # FIXME
+                        print(block.default_defined_type, ", ".join(targets), ";")
 
-        print("for", target, "in", iter, "do", end="")
-        self.print_lineinfo(node)
+                    args = tuple(map(self.visit, node.target.elts))
+                elif isinstance(node.target, Name):
+                    block.define_short(node.target.id)
+                    args = (self.visit(node.target),)
+                else:
+                    self.not_support_error(node.target)
 
-        self._visit_Loop(node)
+                For_info = None
+                if self.access_for_value_allowed:
+                    target = map(lambda i: "__PC_{}".format(i), range(len(args)))
+                    target = ", ".join(target)
+                    For_info = target, args
+                else:
+                    target = ", ".join(args)
+
+                iter = self.visit(node.iter)
+
+            print("for", target, "in", iter, "do", end="")
+            self.print_lineinfo(node)
+        finally:
+            block.set_special_define(last_special_define_type)
+
+        self._visit_Loop(node, For_info=For_info)
 
     def visit_While(self, node):
         print = self.print
@@ -1276,6 +1351,14 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         raise IsControlFlow
 
+    def vaild_Name(self, name, *, allow_const=False):
+        if name not in LUA_KEYWORDS:
+            return True
+        elif allow_const and name not in LUA_KEYWORDS_WITHOUT_CONST:
+            return True
+        else:
+            raise ValueError("Function/Class/Value name can't be lua keyword! (%s)" % name)
+
     def visit_FunctionDef(self, node):
         print = self.print
         name = node.name
@@ -1293,6 +1376,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         assert not node.args.defaults
         assert not node.args.kw_defaults
         assert not node.returns
+        assert self.vaild_Name(node.name)
 
         block = self.current_block
         define_type = block.define_short(name)
@@ -1300,8 +1384,9 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         rawargs = args
         args = ", ".join(args)
         print("%sfunction %s(%s)" % (define_type, name, args))
-        with self.block(scope=True):
-            block = self.current_block
+        with self.block(scope=True) as block:
+            # TODO: define _L and use this for local dict.
+
             for arg in rawargs:
                 if arg != "...":
                     block.define_short(arg)
@@ -1311,7 +1396,19 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
                 print("local %s = {...};" % (vararg,))
                 block.vararg = vararg
 
-            self.unroll(node.body)
+            with self.capture_fp() as cfp:
+                self.unroll(node.body)
+
+            local_defined = set()
+            for key, value in block.special_defined.items():
+                if value.startswith("loop") and key in block.local_defined:
+                    local_defined.add(key)
+
+            if local_defined:
+                print("local %s;" % (", ".join(local_defined),))
+
+            self.fp.write(cfp.getvalue())
+
         print("end;")
 
         with self.hasblock():
@@ -1355,10 +1452,13 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
         return result
 
     def visit_Return(self, node):
+        print = self.print
         if node.value is None:
-            return "return"
+            print("return;")
         else:
-            return "return %s" % self.visit(node.value)
+            print("return", self.visit(node.value), ";")
+
+        raise IsControlFlow
 
     def visit_Global(self, node):
         block = self.current_block
@@ -1383,6 +1483,7 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
 
         assert not node.starargs
         assert not node.kwargs
+        assert self.vaild_Name(node.name)
 
         metatable = None
         for keyword in node.keywords:

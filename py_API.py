@@ -1,6 +1,7 @@
 if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
 __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
+__PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(false)
 global _M # Already _M is local thing. :$
 
 if not getmetatable(_M) or _G == _M:
@@ -1021,10 +1022,10 @@ global dict
 class dict(LuaObject):
     pass
 
-@setup_basic_class
-class function(LuaObject):
-    def __call__(self, *args):
-        pass
+##@setup_basic_class
+##class function(LuaObject):
+##    def __call__(self, *args):
+##        pass
 
 # parse_func_kwargs(args, kwargs, 3, None, 2, "kwargs", "a", "b", "c")
 def parse_func_args(args, kwargs, al, a, *fargs_):
@@ -1086,6 +1087,15 @@ assert inited
 ## test code are here!
 for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
     print(x)
+
+def Access_ForValue():
+    __PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(true)
+    for test in pairs({1,2,3}):
+        pass
+    __PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(false)
+    lua.print("1", test)
+
+Access_ForValue()
 
 print(lua.string.format("%s", "test"))
 print(str.mro())
