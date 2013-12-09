@@ -4,9 +4,11 @@ if pyscripter then
 end;
 
 
-if not getmetatable(_M) or _G == _M then
+local startup = os.clock();
+if _M == _G or rawget(_M, 'shell') then
   _M = setmetatable({['_G'] = _G}, {['__index'] = _G});
   setfenv(1, _M);
+else
 end;
 local lua = {};
 lua.len = (function(obj) return #obj; end);
@@ -96,7 +98,7 @@ function error(msg, level)
 end;
 local function require_args(...)
   local args = {...};
-  local key, value;
+  local value, key;
   for key, value in pairs(args) do
     if value == nil then
       error('SystemError: Not Enough Item');
@@ -106,7 +108,7 @@ local function require_args(...)
 end;
 local function nonrequire_args(...)
   local args = {...};
-  local key, value;
+  local value, key;
   for key, value in pairs(args) do
     if value ~= nil then
       error('SystemError: Too Many Item');
@@ -127,7 +129,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
   scope.__name__ = '_C3_MRO';
   function doload()
     function merge(seqs)
-      local _, intail, cand, seq, nonemptyseqs, set_break;
+      local _, set_break, cand, nonemptyseqs, intail, seq;
       local res = {};
       while true do
         nonemptyseqs = {};
@@ -145,7 +147,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
           if not set_break then
             cand = seq[1];
             function intail()
-              local _, cls, nonemptyseq, j;
+              local _, nonemptyseq, j, cls;
               for _, nonemptyseq in ipairs(nonemptyseqs) do
                 for j, cls in ipairs(nonemptyseq) do
                   if j > 1 and cls == cand then
@@ -177,7 +179,7 @@ _C3_MRO = (function(_M)--(_C3_MRO)
     end;
     setfenv(merge, _M);
     function mro(C)
-      local base, _, mro;
+      local _, base, mro;
       local mros = {};
       local basesCopy = {};
       table.insert(mros, {C});
@@ -529,7 +531,7 @@ function print(...)
   lua.write(data);
 end;
 function isinstance(obj, targets)
-  local _, target, supercls, k;
+  local _, supercls, target, k;
   require_pyobj(obj);
   local cls = type(obj);
   local mro = cls.__mro__;
@@ -550,7 +552,7 @@ function isinstance(obj, targets)
   return False;
 end;
 function issubclass(cls, targets)
-  local _, target, supercls, k;
+  local _, supercls, target, k;
   require_pyobj(obj);
   if type(cls) ~= type then
     error('issubclass() arg 1 must be a class');
@@ -1354,7 +1356,7 @@ dict = (function(_M)--(dict: LuaObject)
     end;
     setfenv(__lua__, _M);
     function __repr__(self)
-      local line, _, r;
+      local _, line, r;
       local target = ObjData[self].v;
       local ret = {};
       local idx = 1;
@@ -1692,32 +1694,39 @@ local function inital()
   _M['None'] = NoneType();
   _M['True'] = bool(true);
   _M['False'] = bool(false);
+  if startup then
+    local final = os.clock();
+    lua.print(lua.format('Startup: %i ms', ((final - startup) * 1000)));
+  end;
   return true;
 end;
 inited = inital();
 assert(inited);
-for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})) do
-  print(x);
-end;
-local function Access_ForValue()
-  local test;
-  
-  for __PC_0 in pairs({1, 2, 3}) do
-    test = __PC_0
+local i = 0;
+local e = 0;
+while i < 25000 do
+  i = (i + 1);
+  int(0);
+  c = 0;
+  for k, v in pairs(Obj_FromID) do
+    c = (c + 1);
   end;
-  
-  lua.print('1', test);
+  if e ~= c then
+    lua.print(e, c);
+    if os.sleep then
+      os.sleep(0);
+    end;
+  end;
+  e = (c + 1);
 end;
-Access_ForValue();
+local final = os.clock();
+lua.print(i, (final - startup));
+c = 0;
 local r = dict({[int(1)] = int(2), [int(3)] = int(4), [int(1)] = int(3)});
 print('!', _OP__Getitem__(r, int(3)));
 print(a, b, c);
 print(lua.format('%s', 'test'));
-print(str.mro());
-print(object.mro());
 print(_OP__Truediv__(int(3), int(6)));
 print(int.mro());
-print(object());
 print(dir(object()));
 print(_OP__Add__(True, True));
-print(_OP__Getitem__(list({int(1), int(2), int(3), int(4)}), int(0)));

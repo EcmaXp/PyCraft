@@ -4,14 +4,15 @@ __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
 __PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(false)
 global _M # Already _M is local thing. :$
 
-if not getmetatable(_M) or _G == _M:
-    # This Logic are support
-    #  - run at pure lua
-    #  - run at cc's shell (with no change environ)
-    #  - run by loadAPI (with export environ)
-
+# This Logic are support
+if _M == _G or rawget(_M, 'shell'):
+    #* run at pure lua
+    #* run at cc's shell (with no change environ)
     _M = setmetatable({"_G":_G}, {"__index":_G})
     setfenv(1, _M)
+else:
+    #* run by loadAPI (with export environ)
+    pass # will use global for export.
 
 #global lua
 lua = {}
@@ -44,6 +45,31 @@ BuiltinTypes = setmetatable({}, {"__mode":"k"})
 ## pairs with weakref table are unsafe!
 InitalBuiltinTypes = {}
 ##
+
+metatable_events = [
+    "__index",
+    "__newindex",
+    "__mode",
+    "__call",
+    "__metatable",
+    "__tostring",
+    "__len",
+    "__gc",
+    "__unm",
+    "__add",
+    "__sub",
+    "__mul",
+    "__div",
+    "__mod",
+    "__pow",
+    "__concat",
+    "__eq",
+    "__lt",
+    "__le",
+]
+metatable_events_rev = {}
+for k, v in pairs(metatable_events):
+    metatable_events_rev[v] = k
 
 builtin_methods = __PC_ECMAXP_GET_OBJECT_ATTRS()
 builtin_methods_rev = {}
@@ -212,6 +238,10 @@ def hide_class_from_seq(seq):
     return new_seq
 
 def setup_base_class(cls):
+    register_pyobj(cls)
+    ObjData[cls].c = {}
+    clsdata = ObjData[cls].c
+
     pcex = {}
     for k, v in pairs(cls):
         idx = builtin_methods_rev[k]
@@ -220,11 +250,10 @@ def setup_base_class(cls):
 
     pcls = getmetatable(cls)
 
-    register_pyobj(cls)
     ObjPCEX[cls] = pcex
     InitalBuiltinTypes[cls] = false
 
-    cls.__mro__ = _C3_MRO.mro(cls)
+    clsdata.__mro__ = _C3_MRO.mro(cls)
 
     return cls
 
@@ -239,15 +268,18 @@ def setup_hide_class(cls):
     return cls
 
 def register_builtins_class(cls):
+    clsdata = ObjData[cls].c
     if cls != object:
-        cls.__base__ = object
+        clsdata.__base__ = object
     else:
-        cls.__base__ = None
+        clsdata.__base__ = None
 
-    cls.__name__ = str(rawget(cls, "__name__"))
-    cls.__module__ = str("builtins")
-    cls.__bases__ = tuple(hide_class_from_seq((cls.__bases__)))
-    cls.__mro__ = tuple(hide_class_from_seq((cls.__mro__)))
+    clsdata.__name__ = str(cls.__name__)
+    clsdata.__module__ = str("builtins")
+    clsdata.__bases__ = tuple(hide_class_from_seq((cls.__bases__)))
+    clsdata.__mro__ = tuple(hide_class_from_seq((clsdata.__mro__)))
+    cls.__name__ = nil
+    cls.__bases__ = nil
 
     InitalBuiltinTypes[cls] = true
     return cls
@@ -377,10 +409,10 @@ def OP_Math2_Pow(vx, wx, zx): # ternary_op (with i)
 global _OP__Is__, _OP__IsNot__
 def  _OP__Is__(a, b):
     require_pyobj(a, b)
-    return ObjData[a].i == ObjData[b].i
+    return bool(ObjData[a].i == ObjData[b].i)
 
 def _OP__IsNot__(a, b):
-    return not _OP__Is__(a, b)
+    return bool(not LObj(_OP__Is__(a, b)))
 
 global _OP__ForIter__
 def _OP__ForIter__(ret):
@@ -419,7 +451,9 @@ _OP__Ne__ = OP_Call(_('__ne__'))
 _OP__Gt__ = OP_Call(_('__gt__'))
 _OP__Ge__ = OP_Call(_('__ge__'))
 _OP__Hash__ = OP_Call(_('__hash__'))
-_OP__Bool__ = OP_Call(_('__bool__')) # TypeError: __bool__ should return bool, returned xxx
+_OP__Bool__ = OP_Call(_('__bool__'))
+# TypeError: __bool__ should return bool, returned xxx
+#: it must custom define for remove __bool__ from object
 _OP__Getattr__ = OP_Call(_('__getattr__'))
 _OP__Getattribute__ = OP_Call(_('__getattribute__'))
 _OP__Setattr__ = OP_Call(_('__setattr__'))
@@ -559,6 +593,9 @@ def id(obj):
 
     Fail_OP_Raw(obj, "__id!")
 
+def dir(obj):
+    return _OP__Dir__(obj)
+
 def iter(ret):
     ret = _OP__Iter__(ret)
     if isinstance(ret, generator) == False:
@@ -616,6 +653,32 @@ class object():
 
         return instance
 
+    def __dir__(self):
+        cls = getmetatable(self)
+        ret = []
+
+        for k, v in pairs(self):
+            ret[k] = true;
+
+        for k, v in pairs(cls):
+            ret[k] = true
+
+        ret2 = []
+        idx = 1
+        for k, v in pairs(ret):
+            if not metatable_events_rev[k]:
+                ret2[idx] = k; idx += 1
+
+        ret = nil
+        table.sort(ret2)
+
+        ret3 = []
+        for k, v in pairs(ret2):
+            ret3[k] = str(v)
+
+        ret2 = nil
+        return list(ret3)
+
     def __getattribute__(self, k):
         # TODO: support non str object (with PyObj)
         v = rawget(self, k)
@@ -630,9 +693,9 @@ class object():
             else:
                 return v
 
-        for k, v in pairs(self):
-            if _OP__Eq__(k, v):
-                return v
+##        for k, v in pairs(self):
+##            if _OP__Eq__(k, v):
+##                return v
 
         error(lua.format("Not found '%s' attribute.", k))
 
@@ -675,6 +738,15 @@ class object():
 global type
 @setup_base_class
 class type(object):
+    def __getattribute__(cls, key):
+        clsdata = ObjData[cls].c
+        if clsdata is not nil:
+            value = clsdata[key]
+            if value is not nil:
+                return value
+
+        return object.__getattribute__(cls, key)
+
     def __call__(cls, *args):
         return cls.__new__(cls, *args)
 
@@ -741,11 +813,15 @@ class Exception(BaseException):
     pass
 
 @setup_basic_class
-class TypeError(Exception, BaseException):
+class TypeError(Exception):
     pass
 
 @setup_basic_class
-class UnstableException(Exception, BaseException):
+class UnstableException(Exception):
+    pass
+
+@setup_basic_class
+class KeyError(Exception):
     pass
 
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
@@ -859,21 +935,27 @@ global list
 @setup_basic_class
 class list(LuaObject):
     def __init__(self, value):
-        start = {}
+        core = {}
         new = nil
-        cur = start
+        cur = core
+
         for k, v in pairs(value):
             new = {}
-            cur.v = v
-
+            new.v = v
             new.p = cur
+
             cur.n = new
             cur = new
 
-        if new.p:
-            new.p.n = nil
+        if core.n:
+            # cut first's prev
+            core.n.p = nil
 
-        LuaObject.__init__(self, start)
+        if new and new.p:
+            # set last
+            core.p = new
+
+        LuaObject.__init__(self, core)
 
     def __getitem__(self, x):
         x = _OP__Index__(x)
@@ -893,7 +975,7 @@ class list(LuaObject):
         sep = ""
 
         ret[idx] = "["; idx += 1
-        cur = ObjData[self].v
+        cur = ObjData[self].v.n
         while cur is not nil:
             ret[idx] = sep; idx += 1
             ret[idx] = LObj(repr(cur.v)); idx += 1
@@ -967,6 +1049,80 @@ class tuple(LuaObject):
 
         return body()
 
+global dict
+@setup_basic_class
+class dict(LuaObject):
+    def __init__(self, obj):
+        LuaObject.__init__(self, {})
+        ObjData[self].changed = false
+        ObjData[self].length = 0
+        dict.update(self, obj)
+
+    def update(self, obj):
+        for k, v in pairs(obj):
+            _OP__Setitem__(self, k, v)
+
+    def __setitem__(self, key, value):
+        assert require_pyobj(key, value)
+        data = ObjData[self]
+        target = data.v
+        hk = _OP__Hash__(key)
+
+        if target[hk] is nil:
+            data.changed = true
+            data.length += 1
+            target[hk] = [(key, value)]
+            return
+
+        line = target[hk]
+        for a, t in pairs(line):
+            if _OP__Eq__(key, t[1]):
+                t[1] = key
+                t[2] = value
+                return # TODO: Break
+        else:
+            data.changed = true
+            data.length += 1
+            line[lua.len(line) + 1] = {key, value}
+
+    def __getitem__(self, key, value):
+        assert require_pyobj(key, value)
+        data = ObjData[self]
+        target = data.v
+        hk = _OP__Hash__(key)
+
+        if target[hk] is nil:
+            error(KeyError(key))
+
+        line = target[hk]
+        for a, t in pairs(line):
+            if _OP__Eq__(key, t[1]):
+                return t[2]
+
+        error(KeyError(key))
+
+    def __lua__(self):
+        pass
+
+    def __repr__(self):
+        target = ObjData[self].v
+        ret = {}
+        idx = 1
+
+        sep = ""
+        ret[idx] = "{"; idx += 1
+        for _, line in pairs(target):
+            for _, r in pairs(line):
+                ret[idx] = sep; idx += 1
+                ret[idx] = LObj(repr(r[1])); idx += 1
+                ret[idx] = ": "; idx += 1
+                ret[idx] = LObj(repr(r[2])); idx += 1
+                sep = ", "
+
+        ret[idx] = "}"; idx += 1
+
+        return table.concat(ret)
+
 #list = tuple # list are broken, wait until fix. (with linked list!)
 
 global str
@@ -1015,6 +1171,12 @@ class LuaNum(LuaObject):
     def __rtruediv__(self, other):
         return float(ObjData[other].v / ObjData[self].v)
 
+    def __eq__(self, other):
+        return bool(ObjData[self].v == ObjData[other].v)
+
+    def __ne__(self, other):
+        return bool(ObjData[self].v != ObjData[other].v)
+
 def int_chk_other(other):
     if isinstance(other, int) == False: return NotImplemented
 
@@ -1040,7 +1202,7 @@ class int(LuaNum):
         return int_chk_other(other) or int(LuaNum.__rmul__(self, other))
 
     def __hash__(self):
-        pass
+        return ObjData[self].v
 
     def __index__(self):
         return int(ObjData[self].v)
@@ -1127,11 +1289,6 @@ class float(LuaNum):
     def __rmul__(self, other):
         return float_chk_other(other) or float(LuaNum.__rmul__(self, other))
 
-global dict
-@setup_basic_class
-class dict(LuaObject):
-    pass
-
 ##@setup_basic_class
 ##class function(LuaObject):
 ##    def __call__(self, *args):
@@ -1195,23 +1352,13 @@ assert inited
 ##
 
 ## test code are here!
-for x in _OP__ForIter__(tuple({int(1), int(2), int(3)})):
-    print(x)
+c = 0
 
-def Access_ForValue():
-    __PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(true)
-    for test in pairs({1,2,3}):
-        pass
-    __PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(false)
-    lua.print("1", test)
-
-Access_ForValue()
-
+r = dict({int(1):int(2), int(3):int(4), int(1):int(3)})
+print("!", _OP__Getitem__(r, int(3)))
+print(a, b, c)
 print(lua.format("%s", "test"))
-print(str.mro())
-print(object.mro())
 print(_OP__Truediv__(int(3), int(6)))
 print(int.mro())
-print(object())
+print(dir(object()))
 print(_OP__Add__(True, True))
-print(_OP__Getitem__(list([int(1), int(2), int(3), int(4)]), int(0)))

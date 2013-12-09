@@ -1412,10 +1412,11 @@ class LiteLuaGenerator(BlockBasedCodeGenerator):
             with self.capture_fp() as cfp:
                 self.unroll(node.body)
 
-            local_defined = set()
+            local_defined = []
             for key, value in block.special_defined.items():
                 if value.startswith("loop") and key in block.local_defined:
-                    local_defined.add(key)
+                    if key not in local_defined:
+                        local_defined.append(key)
 
             if local_defined:
                 print("local %s;" % (", ".join(local_defined),))
@@ -1773,8 +1774,8 @@ def compile_and_run_py_API():
             with open(r"X:\Data\Workspace\newlua\src\py_API.lua", "w") as fp:
                 fp.write(compiled)
 
-        if os.path.exists(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1"):
-            with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\1\py", "w") as fp:
+        if os.path.exists(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\0"):
+            with open(r"C:\Users\EcmaXp\AppData\Roaming\.ccdesk\computer\0\py", "w") as fp:
                 fp.write(compiled)
 
     try:
