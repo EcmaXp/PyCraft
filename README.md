@@ -26,6 +26,7 @@ Any helper can help me. Open issue with support this.
 * Rewrite The Library.
 * Code Compresser or Store the function + data for low cpu/memory usage. (almost done with Code Compresser, now i need store thing? (reference))
 * MRO Cache by lua_compiler, calcuate C3 MRO are very heavy. (didn't profile)
+* Simple error message.
 
 ## Check Here
 * http://www.lua.org/
