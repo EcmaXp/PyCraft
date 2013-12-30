@@ -1,9 +1,7 @@
-Python 4 Lua (ComputerCraft Only!)
+Python 4 Lua (OpenComputers Only!)
 ==================================
 
-Python Code to Lua. For ComputerCraft
-
-This Project are stopped.
+Python Code to Lua. For OpenComputers
 
 Any helper can help me. Open issue with support this.
 
