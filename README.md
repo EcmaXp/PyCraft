@@ -22,7 +22,7 @@ Any helper can help me. Open issue with support this.
 * Support Python Bulitins
 * Support Iter, If, etc.
 * Support str, int, float, tuple, dict, list, set builtins method.
-* Rewrite Full Python Translator for simple.
+* Rewrite Full Python Translator for simple. (it must dynamic code generator and do not compile if that don't edited)
 * Rewrite The Library.
 * Code Compresser or Store the function + data for low cpu/memory usage. (almost done with Code Compresser, now i need store thing? (reference))
 
