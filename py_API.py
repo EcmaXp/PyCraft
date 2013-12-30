@@ -1,18 +1,12 @@
 if pyscripter: exit(__import__('pc').main())
 ### THE HACK FOR RUN py-API.py in pyscripts.
 __PC_ECMAXP_ARE_THE_GOD_IN_THIS_WORLD("YES")
-__PC_ECMAXP_SETUP_ACCESS_FOR_VALUE(false)
 global _M # Already _M is local thing. :$
 
-# This Logic are support
-if _M == _G or rawget(_M, 'shell'):
-    #* run at pure lua
-    #* run at cc's shell (with no change environ)
-    _M = setmetatable({"_G":_G}, {"__index":_G})
-    setfenv(1, _M)
-else:
-    #* run by loadAPI (with export environ)
-    pass # will use global for export.
+tick = os.sleep
+if tick is nil:
+    def tick():
+        pass
 
 #global lua
 lua = {}
@@ -34,8 +28,10 @@ inited = False
 
 builtins = "builtins"
 
+tick();
+
 ## This table are weaktable.
-ObjData = setmetatable({}, {"__mode":"k"}) # i=id, v=value, h=hash
+ObjData = setmetatable({}, {"__mode":"k"}) # i=id, v=value, h=hash, d=data
 ObjPCEX = setmetatable({}, {"__mode":"k"}) # small table for fast find
 Obj_FromID = setmetatable({}, {"__mode":"v"})
 
@@ -67,6 +63,7 @@ metatable_events = [
     "__lt",
     "__le",
 ]
+
 metatable_events_rev = {}
 for k, v in pairs(metatable_events):
     metatable_events_rev[v] = k
@@ -76,9 +73,20 @@ builtin_methods_rev = {}
 for k, v in pairs(builtin_methods):
     builtin_methods_rev[v] = k
 
-assert builtin_methods[42] == '__rshift__'
-assert builtin_methods_rev["__pos__"] == 72
-error = nil
+##assert builtin_methods[42] == '__rshift__'
+##assert builtin_methods_rev["__pos__"] == 72
+
+tick();
+
+def __build_lua_class__(name, bases):
+    obj = {}
+    for _, c in pairs(bases):
+        for k, v in pairs(c):
+            obj[k] = v
+
+    obj.__bases__ = bases
+    obj.__name__ = name
+    return obj
 
 def is_float(num):
     if lua.type(num) != "number":
@@ -99,7 +107,7 @@ def PObj(obj):
 global LObj
 def LObj(obj):
     if is_pyobj(obj):
-        return _OP__Lua__(obj)
+        return _OP.__lua__(obj)
     else:
         return obj
 
@@ -114,6 +122,8 @@ raw_id = nil
 def register_pyobj(obj, obj_id):
     if obj_id is nil:
         obj_id = raw_id(obj)
+        if obj_id is nil:
+            obj_id = "?"
 
     assert ObjData[obj] is nil
 
@@ -151,6 +161,8 @@ def is_float(num):
         error("This is not number", 2)
 
     return math.floor(num) != num
+
+tick();
 
 _C3_MRO = nil # define local
 class _C3_MRO(): # This is container. not like class.
@@ -209,6 +221,7 @@ class _C3_MRO(): # This is container. not like class.
 
             table.insert(mros, mro)
             table.insert(basesCopy, base)
+            tick();
 
         table.insert(mros, basesCopy)
         return _C3_MRO.merge(mros)
@@ -226,6 +239,8 @@ class _C3_MRO(): # This is container. not like class.
 
         error("FAILED")
 
+tick();
+
 def hide_class_from_seq(seq):
     new_seq = {}
     idx = 1
@@ -238,6 +253,8 @@ def hide_class_from_seq(seq):
     return new_seq
 
 def setup_base_class(cls):
+    tick();
+
     register_pyobj(cls)
     ObjData[cls].c = {}
     clsdata = ObjData[cls].c
@@ -247,6 +264,8 @@ def setup_base_class(cls):
         idx = builtin_methods_rev[k]
         if idx is not nil:
             pcex[idx] = v
+        elif builtin_methods[k]:
+            pcex[k] = v
 
     pcls = getmetatable(cls)
 
@@ -258,7 +277,7 @@ def setup_base_class(cls):
     return cls
 
 def setup_basic_class(cls):
-    setup_base_class(cls)
+    setup_base_class(cls, true)
     setmetatable(cls, type)
 
     return cls
@@ -283,6 +302,11 @@ def register_builtins_class(cls):
 
     InitalBuiltinTypes[cls] = true
     return cls
+
+tick();
+
+global _OP
+_OP = {}
 
 def Fail_OP(a, ax):
     error(lua.concat(LObj(repr(a)), " are not support ", builtin_methods[ax]))
@@ -406,19 +430,21 @@ def OP_Math2_Pow(vx, wx, zx): # ternary_op (with i)
 
     return func
 
-global _OP__Is__, _OP__IsNot__
+tick();
+
 def  _OP__Is__(a, b):
     require_pyobj(a, b)
     return bool(ObjData[a].i == ObjData[b].i)
+_OP.__Is__ = _OP__Is__
 
 def _OP__IsNot__(a, b):
-    return bool(not LObj(_OP__Is__(a, b)))
+    return bool(not LObj(_OP.__Is__(a, b)))
+_OP.__IsNot__ = _OP__IsNot__
 
-global _OP__ForIter__
 def _OP__ForIter__(ret):
     return LObj(iter(ret))
+_OP.__ForIter__ = _OP__ForIter__
 
-global _OP__SetupGenFunc__
 def _OP__SetupGenFunc__(func):
     def func2():
         # TODO: add try~except and handle error!
@@ -428,101 +454,113 @@ def _OP__SetupGenFunc__(func):
         return generator(coroutine.create(body))
 
     return func2
+_OP__SetupGenFunc__ = _OP__SetupGenFunc__
 
-_OP__Yield__ = lua.yield_
+_OP.__Yield__ = lua.yield_
 
 def _OP__Call__(func, args, kwargs):
     pass
+_OP.__Call__ = _OP__Call__
 
+tick();
 def _(name): return builtin_methods_rev[name]
-__PC_ECMAXP_SETUP_AUTO_GLOBAL(true)
+__PC_ECMAXP_SET_QUICK_OBJECT_ATTRS(true)
 ## Basic Call (Part A)
-_OP__New__ = OP_Call(_('__new__'))
-_OP__Init__ = OP_Call(_('__init__'))
-_OP__Del__ = OP_Call(_('__del__'))
-_OP__Repr__ = OP_Call(_('__repr__'))
-_OP__Str__ = OP_Call(_('__str__'))
-_OP__Bytes__ = OP_Call(_('__bytes__'))
-_OP__Format__ = OP_Call(_('__format__'))
-_OP__Lt__ = OP_Call(_('__lt__'))
-_OP__Le__ = OP_Call(_('__le__'))
-_OP__Eq__ = OP_Call(_('__eq__'))
-_OP__Ne__ = OP_Call(_('__ne__'))
-_OP__Gt__ = OP_Call(_('__gt__'))
-_OP__Ge__ = OP_Call(_('__ge__'))
-_OP__Hash__ = OP_Call(_('__hash__'))
-_OP__Bool__ = OP_Call(_('__bool__'))
+_OP.__new__ = OP_Call(_('__new__'))
+_OP.__init__ = OP_Call(_('__init__'))
+_OP.__del__ = OP_Call(_('__del__'))
+_OP.__repr__ = OP_Call(_('__repr__'))
+_OP.__str__ = OP_Call(_('__str__'))
+_OP.__bytes__ = OP_Call(_('__bytes__'))
+_OP.__format__ = OP_Call(_('__format__'))
+_OP.__lt__ = OP_Call(_('__lt__'))
+_OP.__le__ = OP_Call(_('__le__'))
+_OP.__eq__ = OP_Call(_('__eq__'))
+_OP.__ne__ = OP_Call(_('__ne__'))
+_OP.__gt__ = OP_Call(_('__gt__'))
+_OP.__ge__ = OP_Call(_('__ge__'))
+_OP.__hash__ = OP_Call(_('__hash__'))
+_OP.__bool__ = OP_Call(_('__bool__'))
 # TypeError: __bool__ should return bool, returned xxx
 #: it must custom define for remove __bool__ from object
-_OP__Getattr__ = OP_Call(_('__getattr__'))
-_OP__Getattribute__ = OP_Call(_('__getattribute__'))
-_OP__Setattr__ = OP_Call(_('__setattr__'))
-_OP__Delattr__ = OP_Call(_('__delattr__'))
-_OP__Dir__ = OP_Call(_('__dir__'))
-_OP__Get__ = OP_Call(_('__get__'))
-_OP__Set__ = OP_Call(_('__set__'))
-_OP__Delete__ = OP_Call(_('__delete__'))
-_OP__Slots__ = OP_Call(_('__slots__'))
-_OP__RawCall__ = OP_Call(_('__call__'))
-_OP__Len__ = OP_Call(_('__len__'))
-_OP__Getitem__ = OP_Call(_('__getitem__'))
-_OP__Setitem__ = OP_Call(_('__setitem__'))
-_OP__Delitem__ = OP_Call(_('__delitem__'))
-_OP__Iter__ = OP_Call(_('__iter__'))
-_OP__Reversed__ = OP_Call(_('__reversed__'))
-_OP__Contains__ = OP_Call(_('__contains__'))
+_OP.__getattr__ = OP_Call(_('__getattr__'))
+_OP.__getattribute__ = OP_Call(_('__getattribute__'))
+_OP.__setattr__ = OP_Call(_('__setattr__'))
+_OP.__delattr__ = OP_Call(_('__delattr__'))
+_OP.__dir__ = OP_Call(_('__dir__'))
+_OP.__get__ = OP_Call(_('__get__'))
+_OP.__set__ = OP_Call(_('__set__'))
+_OP.__delete__ = OP_Call(_('__delete__'))
+_OP.__slots__ = OP_Call(_('__slots__'))
+_OP.__rawCall__ = OP_Call(_('__call__'))
+_OP.__len__ = OP_Call(_('__len__'))
+_OP.__getitem__ = OP_Call(_('__getitem__'))
+_OP.__setitem__ = OP_Call(_('__setitem__'))
+_OP.__delitem__ = OP_Call(_('__delitem__'))
+_OP.__iter__ = OP_Call(_('__iter__'))
+_OP.__reversed__ = OP_Call(_('__reversed__'))
+_OP.__contains__ = OP_Call(_('__contains__'))
 
 ## Math Operation (A * B)
-_OP__Add__ = OP_Math1(_('__add__'), _('__radd__'))
-_OP__Sub__ = OP_Math1(_('__sub__'), _('__rsub__'))
-_OP__Mul__ = OP_Math1(_('__mul__'), _('__rmul__'))
-_OP__Truediv__ = OP_Math1(_('__truediv__'), _('__rtruediv__'))
-_OP__Floordiv__ = OP_Math1(_('__floordiv__'), _('__rfloordiv__'))
-_OP__Mod__ = OP_Math1(_('__mod__'), _('__rmod__'))
-_OP__Divmod__ = OP_Math1(_('__divmod__'), _('__rdivmod__'))
-_OP__Pow__ = OP_Math1_Pow(_('__pow__'), _('__rpow__'))
-_OP__Lshift__ = OP_Math1(_('__lshift__'), _('__rlshift__'))
-_OP__Rshift__ = OP_Math1(_('__rshift__'), _('__rrshift__'))
-_OP__And__ = OP_Math1(_('__and__'), _('__rand__'))
-_OP__Xor__ = OP_Math1(_('__xor__'), _('__rxor__'))
-_OP__Or__ = OP_Math1(_('__or__'), _('__ror__'))
+_OP.__add__ = OP_Math1(_('__add__'), _('__radd__'))
+_OP.__sub__ = OP_Math1(_('__sub__'), _('__rsub__'))
+_OP.__mul__ = OP_Math1(_('__mul__'), _('__rmul__'))
+_OP.__truediv__ = OP_Math1(_('__truediv__'), _('__rtruediv__'))
+_OP.__floordiv__ = OP_Math1(_('__floordiv__'), _('__rfloordiv__'))
+_OP.__mod__ = OP_Math1(_('__mod__'), _('__rmod__'))
+_OP.__divmod__ = OP_Math1(_('__divmod__'), _('__rdivmod__'))
+_OP.__pow__ = OP_Math1_Pow(_('__pow__'), _('__rpow__'))
+_OP.__lshift__ = OP_Math1(_('__lshift__'), _('__rlshift__'))
+_OP.__rshift__ = OP_Math1(_('__rshift__'), _('__rrshift__'))
+_OP.__and__ = OP_Math1(_('__and__'), _('__rand__'))
+_OP.__xor__ = OP_Math1(_('__xor__'), _('__rxor__'))
+_OP.__or__ = OP_Math1(_('__or__'), _('__ror__'))
 
 ## Math Operation (A *= B)
-_OP__Iadd__ = OP_Math2(_('__iadd__'), _('__add__'), _('__radd__'))
-_OP__Isub__ = OP_Math2(_('__isub__'), _('__sub__'), _('__rsub__'))
-_OP__Imul__ = OP_Math2(_('__imul__'), _('__mul__'), _('__rmul__'))
-_OP__Itruediv__ = OP_Math2(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'))
-_OP__Ifloordiv__ = OP_Math2(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'))
-_OP__Imod__ = OP_Math2(_('__imod__'), _('__mod__'), _('__rmod__'))
-_OP__Ipow__ = OP_Math2_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'))
-_OP__Ilshift__ = OP_Math2(_('__ilshift__'), _('__lshift__'), _('__rlshift__'))
-_OP__Irshift__ = OP_Math2(_('__irshift__'), _('__rshift__'), _('__rrshift__'))
-_OP__Iand__ = OP_Math2(_('__iand__'), _('__and__'), _('__rand__'))
-_OP__Ixor__ = OP_Math2(_('__ixor__'), _('__xor__'), _('__rxor__'))
-_OP__Ior__ = OP_Math2(_('__ior__'), _('__or__'), _('__ror__'))
+_OP.__iadd__ = OP_Math2(_('__iadd__'), _('__add__'), _('__radd__'))
+_OP.__isub__ = OP_Math2(_('__isub__'), _('__sub__'), _('__rsub__'))
+_OP.__imul__ = OP_Math2(_('__imul__'), _('__mul__'), _('__rmul__'))
+_OP.__itruediv__ = OP_Math2(_('__itruediv__'), _('__truediv__'), _('__rtruediv__'))
+_OP.__ifloordiv__ = OP_Math2(_('__ifloordiv__'), _('__floordiv__'), _('__rfloordiv__'))
+_OP.__imod__ = OP_Math2(_('__imod__'), _('__mod__'), _('__rmod__'))
+_OP.__ipow__ = OP_Math2_Pow(_('__ipow__'), _('__pow__'), _('__rpow__'))
+_OP.__ilshift__ = OP_Math2(_('__ilshift__'), _('__lshift__'), _('__rlshift__'))
+_OP.__irshift__ = OP_Math2(_('__irshift__'), _('__rshift__'), _('__rrshift__'))
+_OP.__iand__ = OP_Math2(_('__iand__'), _('__and__'), _('__rand__'))
+_OP.__ixor__ = OP_Math2(_('__ixor__'), _('__xor__'), _('__rxor__'))
+_OP.__ior__ = OP_Math2(_('__ior__'), _('__or__'), _('__ror__'))
 
 ## Basic Call (Part B)
-_OP__Neg__ = OP_Call(_('__neg__'))
-_OP__Pos__ = OP_Call(_('__pos__'))
-_OP__Abs__ = OP_Call(_('__abs__'))
-_OP__Invert__ = OP_Call(_('__invert__'))
-_OP__Complex__ = OP_Call(_('__complex__'))
-_OP__Int__ = OP_Call(_('__int__'))
-_OP__Float__ = OP_Call(_('__float__'))
-_OP__Round__ = OP_Call(_('__round__'))
-_OP__Index__ = OP_Call(_('__index__'))
-_OP__Enter__ = OP_Call(_('__enter__'))
-_OP__Exit__ = OP_Call(_('__exit__'))
+_OP.__neg__ = OP_Call(_('__neg__'))
+_OP.__pos__ = OP_Call(_('__pos__'))
+_OP.__abs__ = OP_Call(_('__abs__'))
+_OP.__invert__ = OP_Call(_('__invert__'))
+_OP.__complex__ = OP_Call(_('__complex__'))
+_OP.__int__ = OP_Call(_('__int__'))
+_OP.__float__ = OP_Call(_('__float__'))
+_OP.__round__ = OP_Call(_('__round__'))
+_OP.__index__ = OP_Call(_('__index__'))
+_OP.__enter__ = OP_Call(_('__enter__'))
+_OP.__exit__ = OP_Call(_('__exit__'))
 
 ## Extra Call
-_OP__Lua__ = OP_Call(_('__lua__'))
+_OP.__lua__ = OP_Call(_('__lua__'))
+__PC_ECMAXP_SET_QUICK_OBJECT_ATTRS(false)
+tick();
 
 ## Builtins
+__PC_ECMAXP_SETUP_AUTO_GLOBAL(true)
 def repr(obj):
     if is_pyobj(obj):
-        return _OP__Repr__(obj)
+        return _OP.__repr__(obj)
     else:
         return lua.format("%s(%s)", LUA_OBJ_TAG, tostring(obj))
+
+def hash(obj):
+    if is_pyobj(obj):
+        return _OP.__hash__(obj)
+    else:
+        return -1
 
 def print(*args):
     arr = []
@@ -550,6 +588,7 @@ def isinstance(obj, targets):
     #TODO: how to?
     #mro = cls.mro()
     #assert type(mro) == list
+
     mro = cls.__mro__
     assert type(mro) == tuple
 
@@ -558,7 +597,7 @@ def isinstance(obj, targets):
     else:
         targets = {targets}
 
-    for _, supercls in pairs(_OP__Lua__(mro)):
+    for _, supercls in pairs(_OP.__lua__(mro)):
         require_pyobj(supercls)
         for k, target in pairs(targets):
             if supercls == target:
@@ -580,7 +619,7 @@ def issubclass(cls, targets):
     else:
         targets = {targets}
 
-    for _, supercls in pairs(_OP__Lua__(mro)):
+    for _, supercls in pairs(_OP.__lua__(mro)):
         require_pyobj(supercls)
         for k, target in pairs(targets):
             if supercls == target:
@@ -594,17 +633,17 @@ def id(obj):
     Fail_OP_Raw(obj, "__id!")
 
 def dir(obj):
-    return _OP__Dir__(obj)
+    return _OP.__dir__(obj)
 
 def iter(ret):
-    ret = _OP__Iter__(ret)
+    ret = _OP.__iter__(ret)
     if isinstance(ret, generator) == False:
         error(TypeError("iter are only accept generator!"))
 
     return ret
 
 def len(obj):
-    return _OP__Len__(obj)
+    return _OP.__len__(obj)
 
 __PC_ECMAXP_SETUP_AUTO_GLOBAL(false)
 _ = nil
@@ -634,13 +673,13 @@ class object():
         pass
 
     def __call(self, *args):
-        return _OP__RawCall__(self, *args)
+        return _OP.__rawCall__(self, *args)
 
     def __index(self, key):
-        return _OP__Getattribute__(self, key)
+        return _OP.__getattribute__(self, key)
 
     def __newindex(self, key, value):
-        return _OP__Setattr__(self, key, value)
+        return _OP.__setattr__(self, key, value)
 
     def __tostring(self):
         return lua.format("%s(%s)", PY_OBJ_TAG, LObj(repr(self)))
@@ -649,7 +688,7 @@ class object():
         instance = {}
         register_pyobj(instance, _raw_id(instance))
         lua.setmetatable(instance, cls)
-        _OP__Init__(instance, *args)
+        _OP.__init__(instance, *args)
 
         return instance
 
@@ -681,6 +720,7 @@ class object():
 
     def __getattribute__(self, k):
         # TODO: support non str object (with PyObj)
+
         v = rawget(self, k)
         if v is not nil:
             return v
@@ -694,7 +734,7 @@ class object():
                 return v
 
 ##        for k, v in pairs(self):
-##            if _OP__Eq__(k, v):
+##            if _OP.__eq__(k, v):
 ##                return v
 
         error(lua.format("Not found '%s' attribute.", k))
@@ -721,7 +761,7 @@ class object():
         return id(self)
 
     def __str__(self):
-        return _OP__Repr__(self)
+        return _OP.__repr__(self)
 
     def __repr__(self):
         mtable = getmetatable(self)
@@ -735,6 +775,7 @@ class object():
     def __bool__(self):
         return True
 
+tick();
 global type
 @setup_base_class
 class type(object):
@@ -785,7 +826,7 @@ class BaseException(object):
         param = tuple(args)
         instance = object.__new__(cls)
         rawset(instance, "args", param)
-        _OP__Init__(instance, param)
+        _OP.__init__(instance, param)
         return instance
 
     def __str__(self):
@@ -793,7 +834,7 @@ class BaseException(object):
         if length == 0:
             return str("")
         elif length == 1:
-            return str(_OP__Getitem__(self.args, int(0)))
+            return str(_OP.__getitem__(self.args, int(0)))
 
     def __repr__(self):
         excname = LObj(type(self).__name__)
@@ -832,7 +873,7 @@ class BuiltinConstType(object):
     def __new__(cls, *args):
         if not inited:
             instance = object.__new__(cls, *args)
-            _OP__Init__(instance, *args)
+            _OP.__init__(instance, *args)
             return instance
 
         return cls._get_singleton()
@@ -878,7 +919,7 @@ class LuaObject(object):
         ObjData[self].v = obj
 
     def __str__(self):
-        return str(_OP__Repr__(self))
+        return str(_OP.__repr__(self))
 
     def __repr__(self):
         return str(tostring(ObjData[self].v))
@@ -958,7 +999,7 @@ class list(LuaObject):
         LuaObject.__init__(self, core)
 
     def __getitem__(self, x):
-        x = _OP__Index__(x)
+        x = _OP.__index__(x)
         x = LObj(x)
 
         cur = ObjData[self].v
@@ -1005,14 +1046,11 @@ class tuple(LuaObject):
         LuaObject.__init__(self, obj)
         assert require_lua_sequance(obj)
 
-    def __repr__(self):
-        return self.make_repr("(", ")")
-
     def __len__(self):
         return int(lua.len(ObjData[self].v))
 
     def __getitem__(self, x):
-        x = _OP__Index__(x)
+        x = _OP.__index__(x)
         x = LObj(x)
         assert x >= 0
         return ObjData[self].v[LObj(x) + 1]
@@ -1040,11 +1078,11 @@ class tuple(LuaObject):
         value = ObjData[self].v
         idx = 1
 
-        @_OP__SetupGenFunc__
+        @_OP.__setupGenFunc__
         def body():
             nonlocal idx
             while value[idx] is not nil:
-                _OP__Yield__(value[idx])
+                _OP.__yield__(value[idx])
                 idx += 1
 
         return body()
@@ -1060,13 +1098,13 @@ class dict(LuaObject):
 
     def update(self, obj):
         for k, v in pairs(obj):
-            _OP__Setitem__(self, k, v)
+            _OP.__setitem__(self, k, v)
 
     def __setitem__(self, key, value):
         assert require_pyobj(key, value)
         data = ObjData[self]
         target = data.v
-        hk = _OP__Hash__(key)
+        hk = LObj(_OP.__hash__(key))
 
         if target[hk] is nil:
             data.changed = true
@@ -1076,7 +1114,7 @@ class dict(LuaObject):
 
         line = target[hk]
         for a, t in pairs(line):
-            if _OP__Eq__(key, t[1]):
+            if _OP.__eq__(key, t[1]) is True:
                 t[1] = key
                 t[2] = value
                 return # TODO: Break
@@ -1085,18 +1123,18 @@ class dict(LuaObject):
             data.length += 1
             line[lua.len(line) + 1] = {key, value}
 
-    def __getitem__(self, key, value):
-        assert require_pyobj(key, value)
+    def __getitem__(self, key):
+        assert require_pyobj(key)
         data = ObjData[self]
         target = data.v
-        hk = _OP__Hash__(key)
+        hk = LObj(_OP.__hash__(key))
 
         if target[hk] is nil:
             error(KeyError(key))
 
         line = target[hk]
         for a, t in pairs(line):
-            if _OP__Eq__(key, t[1]):
+            if _OP.__eq__(key, t[1]) == True:
                 return t[2]
 
         error(KeyError(key))
@@ -1130,7 +1168,7 @@ global str
 class str(LuaObject):
     def __init__(self, value):
         if is_pyobj(value):
-            value = _OP__Str__(value)
+            value = _OP.__str__(value)
             value = LObj(value)
 
         ObjData[self].v = value
@@ -1202,7 +1240,7 @@ class int(LuaNum):
         return int_chk_other(other) or int(LuaNum.__rmul__(self, other))
 
     def __hash__(self):
-        return ObjData[self].v
+        return int(ObjData[self].v)
 
     def __index__(self):
         return int(ObjData[self].v)
@@ -1227,7 +1265,7 @@ class bool(int):
             return instance
 
         if is_pyobj(value):
-            value = _OP__Bool__(value)
+            value = _OP.__bool__(value)
             # check type
         else:
             value = value and true or false
@@ -1327,7 +1365,6 @@ def parse_func_kwargs(args, kwargs, al, a, kl, k, *fargs_):
         pass
 
 
-
 def parse_func_args(args, kwargs, *fargs_):
     pass
 
@@ -1339,11 +1376,11 @@ def inital():
         BuiltinTypes[cls] = true
     InitalBuiltinTypes = nil
 
-    _M["NotImplemented"] = NotImplementedType()
-    _M["Ellipsis"] = EllipsisType()
-    _M["None"] = NoneType()
-    _M["True"] = bool(true)
-    _M["False"] = bool(false)
+    _G["NotImplemented"] = NotImplementedType()
+    _G["Ellipsis"] = EllipsisType()
+    _G["None"] = NoneType()
+    _G["True"] = bool(true)
+    _G["False"] = bool(false)
 
     return true
 
@@ -1351,14 +1388,60 @@ inited = inital()
 assert inited
 ##
 
+tick();
+
 ## test code are here!
 c = 0
 
 r = dict({int(1):int(2), int(3):int(4), int(1):int(3)})
-print("!", _OP__Getitem__(r, int(3)))
+tick();
+
+print("!", _OP.__getitem__(r, int(3)))
+tick();
+
 print(a, b, c)
+tick();
+
 print(lua.format("%s", "test"))
-print(_OP__Truediv__(int(3), int(6)))
+tick();
+
+print(_OP.__truediv__(int(3), int(6)))
+tick();
+
 print(int.mro())
+tick();
+
 print(dir(object()))
-print(_OP__Add__(True, True))
+tick();
+
+print("?", LObj(bool.__bases__))
+tick();
+
+print(_OP.__add__(True, True))
+tick();
+
+if computer:
+    print("Python3 By EcmaXp :P")
+    history = {}
+    env = setmetatable(_G, {"__index":_ENV})
+    while term.isAvailable():
+        foreground = component.gpu.setForeground(0x00FF00)
+        term.write("lua> ")
+        component.gpu.setForeground(foreground)
+        command = term.read(history)
+        if command == nil:
+            LUA_CODE("return")
+
+        while lua.len(history) > 10:
+            table.remove(history, 1)
+
+        statement, result = load(command, "=stdin", "t", env)
+        expression = load(lua.concat("return ", command), "=stdin", "t", env)
+        code = expression or statement
+        if code:
+            result = table.pack(pcall(code))
+
+        if not result[1] or result.n > 1:
+            print(table.unpack(result, 2, result.n))
+        else:
+            print(result)

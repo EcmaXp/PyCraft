@@ -1,1 +1,1 @@
-http://lua-users.org/wiki/LuaBinariesPlace your lua 5.1 execute in here.If you are not Windows users. must change execute_lite in pc.py
+http://lua-users.org/wiki/LuaBinariesPlace your lua 5.2 execute in here.If you are not Windows users. must change execute_lite in pc.pyOh, i will not support ComputerCraft. :(
